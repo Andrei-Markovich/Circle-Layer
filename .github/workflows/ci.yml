@@ -16,8 +16,9 @@ jobs:
           node-version: "20.x"
           cache: "npm"
 
-      - name: Install dependencies (omit optional)
-        run: npm ci --omit=optional
+      - name: Install dependencies (no optional)
+        run: |
+          npm ci --no-optional || npm install --no-optional
 
       - name: Compile
         run: npm run compile
