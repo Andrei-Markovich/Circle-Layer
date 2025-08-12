@@ -20,6 +20,10 @@ jobs:
         run: |
           npm ci --no-optional || npm install --no-optional
 
+      - name: Install solidity analyzer for Linux
+        if: runner.os == 'Linux'
+        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+
       - name: Compile
         run: npm run compile
 
