@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push: { branches: [ "main" ] }
@@ -29,3 +29,36 @@ jobs:
 
       - name: Test
         run: npx hardhat test
+  deploy:
+    name: Deploy to Circle Layer Testnet
+    needs: ci
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps (no optional)
+        run: npm ci --no-optional
+
+      - name: Deploy
+        env:
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+        run: npm run deploy
+
+      - name: Export ABI
+        env:
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+        run: node scripts/exportAbi.js
+
+      - name: Upload deployment artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployments-${{ github.sha }}
+          path: deployments/**
+
