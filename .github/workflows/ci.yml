@@ -1,6 +1,11 @@
 ﻿name: CI
 
 on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
   push: { branches: [ "main" ] }
   pull_request: { branches: [ "main" ] }
 
@@ -61,5 +66,6 @@ jobs:
         with:
           name: deployments-${{ github.sha }}
           path: deployments/**
+
 
 
