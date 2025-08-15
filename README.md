@@ -1,13 +1,24 @@
-# Sample Hardhat Project
+﻿# Circle Layer Testnet — Hardhat & Truffle
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+![CI](https://github.com/Andrei-Markovich/Circle-Layer/actions/workflows/ci.yml/badge.svg)
 
-Try running some of the following tasks:
+## Требования
+Node.js 20.x, npm
 
-```shell
-npx hardhat help
-npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat ignition deploy ./ignition/modules/Lock.js
+## Установка
+```bash
+npm ci --no-optional
+```
+
+## Конфигурация
+Создайте `.env` по образцу `.env.example`.
+
+## Команды
+```bash
+npm run compile
+npm run check
+npm run deploy
+npm run use
+npm run truffle:migrate
+npm run truffle:console
 ```
