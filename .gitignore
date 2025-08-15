@@ -14,3 +14,6 @@ build/
 # others
 coverage/
 typechain/
+
+# local variants
+.env(old)
