@@ -31,7 +31,7 @@ jobs:
         run: npx hardhat test
   deploy:
     name: Deploy to Circle Layer Testnet
-    needs: ci
+    needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -61,4 +61,5 @@ jobs:
         with:
           name: deployments-${{ github.sha }}
           path: deployments/**
+
 
