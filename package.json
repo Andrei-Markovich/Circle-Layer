@@ -170,5 +170,8 @@
     "yargs-unparser": "^2.0.0",
     "yocto-queue": "^0.1.0"
   },
-  "description": ""
+  "description": "",
+  "engines": {
+    "node": ">=20 <21"
+  }
 }
