@@ -19,9 +19,9 @@ jobs:
           node-version: "20.x"
           cache: "npm"
 
-      - name: Install dependencies (no optional)
+      - name: Install dependencies (omit optional)
         run: |
-          npm ci --no-optional || npm install --no-optional
+          npm ci --omit=optional || npm install --omit=optional
 
       - name: Install solidity analyzer for Linux
         if: runner.os == 'Linux'
@@ -48,9 +48,8 @@ jobs:
           node-version: "20.x"
           cache: "npm"
 
-      - name: Install deps (no optional)
-        run: npm ci --no-optional
-
+      - name: Install deps (omit optional)
+        run: |`r`n          npm ci --omit=optional || npm install --omit=optional
       - name: Install solidity analyzer for Linux
         if: runner.os == 'Linux'
         run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
@@ -70,3 +69,4 @@ jobs:
         with:
           name: deployments-${{ github.sha }}
           path: deployments/**
+
