@@ -1,74 +1,51 @@
-﻿name: CI
+﻿deploy:
+  name: Deploy to Circle Layer Testnet
+  needs: build
+  if: github.ref == 'refs/heads/main'
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@v4
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: "npm"
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    - name: Install deps (omit optional)
+      run: |
+        npm ci --omit=optional || npm install --omit=optional
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20.x"
-          cache: "npm"
+    - name: Install solidity analyzer for Linux
+      if: runner.os == 'Linux'
+      run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
 
-      - name: Install dependencies (omit optional)
-        run: |
-          npm ci --omit=optional || npm install --omit=optional
+    - name: Deploy
+      id: deploy
+      env:
+        PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        npm run -s deploy | tee deploy.log
+        addr=$(sed -n 's/^SimpleStorage address: //p' deploy.log | tail -1)
+        if [[ -z "$addr" ]]; then
+          echo "::error::Couldn't parse SimpleStorage address from deploy output"
+          cat deploy.log
+          exit 1
+        fi
+        echo "SIMPLE_STORAGE=$addr" >> "$GITHUB_ENV"
+        echo "TRUFFLE_SIMPLE_STORAGE=$addr" >> "$GITHUB_ENV"
+        echo "address=$addr" >> "$GITHUB_OUTPUT"
 
-      - name: Install solidity analyzer for Linux
-        if: runner.os == 'Linux'
-        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+    - name: Export ABI
+      env:
+        PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+      run: node scripts/exportAbi.js
 
-      - name: Compile
-        run: npm run compile
-
-      - name: Test
-        run: npx hardhat test
-
-  deploy:
-    name: Deploy to Circle Layer Testnet
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20.x"
-          cache: "npm"
-      - name: Install deps (omit optional)
-        run: |
-          npm ci --omit=optional || npm install --omit=optional
-
-      - name: Install solidity analyzer for Linux for Linux
-        if: runner.os == 'Linux'
-        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
-
-      - name: Deploy
-        env:
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-        run: npm run deploy
-
-      - name: Export ABI
-        env:
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-        run: node scripts/exportAbi.js
-
-      - name: Upload deployment artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: deployments-${{ github.sha }}
-          path: deployments/**
-
-
+    - name: Upload deployment artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployments-${{ github.sha }}
+        path: deployments/**
