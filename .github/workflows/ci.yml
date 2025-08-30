@@ -32,6 +32,17 @@ jobs:
       - name: Test
         run: npx hardhat test
 
+      - name: Who am I (print deployer & balance)
+        env:
+        PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          out=$(npx hardhat run scripts/whoami.js --network circleLayerTestnet)
+          echo "$out"
+          echo "### Deployer check" >> "$GITHUB_STEP_SUMMARY"
+          echo "$out" >> "$GITHUB_STEP_SUMMARY"
+
+
   deploy:
     name: Deploy to Circle Layer Testnet
     needs: build
