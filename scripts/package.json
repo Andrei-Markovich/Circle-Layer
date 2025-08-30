@@ -1,0 +1,5 @@
+"scripts": {
+  "...": "...",
+  "read": "hardhat run scripts/read.js --network circleLayerTestnet",
+  "set": "hardhat run scripts/set.js --network circleLayerTestnet"
+}
