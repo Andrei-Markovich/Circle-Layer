@@ -17,7 +17,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20.x"
-          cache: npm
+          cache: "npm"
 
       - name: Install dependencies (omit optional)
         run: npm ci --omit=optional || npm install --omit=optional
@@ -42,10 +42,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: "20.x"
-          cache: npm
+          cache: "npm"
 
       - name: Install deps (omit optional)
         run: npm ci --omit=optional || npm install --omit=optional
@@ -58,26 +59,31 @@ jobs:
         id: deploy
         env:
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          EXPLORER_BASE: ${{ vars.EXPLORER_BASE }}
         shell: bash
         run: |
           set -euo pipefail
+          # deploy and capture output
           npm run -s deploy | tee deploy.log
+
+          # parse address
           addr=$(sed -n 's/^SimpleStorage address: //p' deploy.log | tail -1)
-          if [ -z "$addr" ]; then
+          if [[ -z "$addr" ]]; then
             echo "::error::Couldn't parse SimpleStorage address from deploy output"
             cat deploy.log
             exit 1
           fi
-          echo "SIMPLE_STORAGE=$addr" >> "$GITHUB_ENV"
-          echo "TRUFFLE_SIMPLE_STORAGE=$addr" >> "$GITHUB_ENV"
-          echo "address=$addr" >> "$GITHUB_OUTPUT"
-      - name: Publish address to summary
-        run: |
-         {
-          echo "### SimpleStorage deployed";
-          echo "";
-          echo "- Address: \`$SIMPLE_STORAGE\`";
-         } >> "$GITHUB_STEP_SUMMARY"
+          echo "SIMPLE_STORAGE=$addr"          >> "$GITHUB_ENV"
+          echo "TRUFFLE_SIMPLE_STORAGE=$addr"  >> "$GITHUB_ENV"
+          echo "address=$addr"                 >> "$GITHUB_OUTPUT"
+
+          # summary
+          echo "### Deployed SimpleStorage"            >> "$GITHUB_STEP_SUMMARY"
+          echo                                         >> "$GITHUB_STEP_SUMMARY"
+          echo "Address: $addr"                        >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${EXPLORER_BASE:-}" ]; then
+            echo "Explorer: ${EXPLORER_BASE}/address/$addr" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Export ABI
         env:
