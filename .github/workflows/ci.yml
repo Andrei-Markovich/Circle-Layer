@@ -71,6 +71,13 @@ jobs:
           echo "SIMPLE_STORAGE=$addr" >> "$GITHUB_ENV"
           echo "TRUFFLE_SIMPLE_STORAGE=$addr" >> "$GITHUB_ENV"
           echo "address=$addr" >> "$GITHUB_OUTPUT"
+      - name: Publish address to summary
+        run: |
+         {
+          echo "### SimpleStorage deployed";
+          echo "";
+          echo "- Address: \`$SIMPLE_STORAGE\`";
+         } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Export ABI
         env:
