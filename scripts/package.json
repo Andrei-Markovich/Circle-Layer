@@ -1,8 +1,0 @@
-{
-  "name": "my-project",
-  "version": "1.0.0",
-  "scripts": {
-    "read": "hardhat run --network circleLayerTestnet scripts/read.js",
-    "set":  "hardhat run --network circleLayerTestnet scripts/set.js"
-  }
-}
