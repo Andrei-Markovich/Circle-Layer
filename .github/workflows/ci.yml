@@ -18,18 +18,15 @@ jobs:
   build:
     runs-on: ubuntu-24.04
 
-    # Пробрасываем секреты в env и используем ИХ в if-условиях (НЕ secrets.*)
     env:
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
       SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
       PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
 
-      # Чуть “успокоим” npm в CI
       CI: "true"
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND:  "false"
-      # На Linux опциональные пакеты (включая fsevents) нам не нужны
-      NPM_CONFIG_OPTIONAL: "false"
+      NPM_CONFIG_OPTIONAL: "false"   # отключаем optional deps (fsevents и т.п.)
 
     steps:
       - name: Checkout
@@ -46,8 +43,6 @@ jobs:
           node -v
           npm -v
 
-      # На некоторых lockfile npm ci ругается на fsevents даже с omit=optional.
-      # Делаем сначала ci с omit=optional, при фейле — fallback на npm i.
       - name: Install deps (skip optional)
         shell: bash
         run: |
@@ -61,8 +56,6 @@ jobs:
             npm i --omit=optional
           fi
 
-      # У некоторых окружений Hardhat не подтягивает linux-бинарь анализатора.
-      # Гарантируем его наличие.
       - name: Ensure Linux solidity analyzer present
         shell: bash
         run: |
@@ -72,12 +65,11 @@ jobs:
       - name: Compile
         run: npx hardhat compile
 
-      # Дешёвый smoke-тест чтения; работает, если задан адрес контракта.
-      - name: Smoke: read SimpleStorage
-        if: env.SIMPLE_STORAGE != ''
+      # Лёгкий smoke-тест чтения — только если задан адрес контракта
+      - name: Smoke - read SimpleStorage
+        if: ${{ env.SIMPLE_STORAGE != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
 
-      # Если есть экспортёр ABI — вызовем его и приложим артефакт
       - name: Export ABI (optional)
         shell: bash
         run: |
@@ -88,15 +80,15 @@ jobs:
           fi
 
       - name: Upload ABI artifact (if any)
+        if: ${{ hashFiles('abi/**') != '' }}
         uses: actions/upload-artifact@v4
-        if: hashFiles('abi/**') != ''
         with:
           name: simpleStorage-abi
           path: abi/
 
-      # Полный E2E (меняет состояние) — только при ручном запуске
+      # Полный E2E (меняет состояние) — только вручную
       - name: E2E set+read (manual only)
-        if: github.event_name == 'workflow_dispatch' && env.PRIVATE_KEY != '' && env.SIMPLE_STORAGE != ''
+        if: ${{ github.event_name == 'workflow_dispatch' && env.PRIVATE_KEY != '' && env.SIMPLE_STORAGE != '' }}
         run: |
           VALUE=4242 npx hardhat run --network circleLayerTestnet scripts/set.js
           npx hardhat run --network circleLayerTestnet scripts/read.js
