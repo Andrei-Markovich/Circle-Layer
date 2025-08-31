@@ -21,9 +21,9 @@ jobs:
       run:
         shell: bash
     env:
-      # Пробрасываем секреты в env (в if ниже используем только env.*, а не secrets.*)
+      # используем env.* в if-условиях
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
       SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
 
     steps:
@@ -36,15 +36,27 @@ jobs:
           node-version: 20
           cache: npm
 
-      # Главное: ставим зависимости без optional (fsevents и т.п.)
+      # Ставим без optional, чтобы не упасть на fsevents
       - name: Install deps (skip optional)
         env:
           npm_config_optional: "false"
           npm_config_ignore_optional: "true"
         run: |
           npm ci --omit=optional --no-audit --no-fund || \
-          npm ci --no-optional --no-audit --no-fund || \
+          npm ci --no-optional   --no-audit --no-fund || \
           npm install --no-optional --no-audit --no-fund
+
+      # На Linux бинарник анализатора — optional; докачиваем, если его нет
+      - name: Ensure solidity analyzer (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
+          || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+
+      # (необязательно) Диагностика — показать, что анализатор в дереве
+      - name: Show analyzer presence
+        run: |
+          node -e "console.log('has linux analyzer:', !!require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu'))" || true
 
       - name: Compile
         run: npx hardhat compile
@@ -52,7 +64,7 @@ jobs:
       - name: Test
         run: npx hardhat test
 
-      # Дополнительные шаги — выполняются только если заданы нужные переменные.
+      # опциональные шаги — выполняются только если секреты заданы
       - name: Whoami (optional)
         if: ${{ env.PRIVATE_KEY != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run scripts/whoami.js --network circleLayerTestnet
