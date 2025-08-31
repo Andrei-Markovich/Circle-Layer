@@ -1,30 +1,30 @@
-﻿require("dotenv").config();
-const { ethers, network } = require("hardhat");
+﻿const hre = require("hardhat");
 const { resolveAddress } = require("./_resolveAddress");
 
 async function main() {
-  // Значение берём из переменной окружения VALUE (на Windows так удобнее)
-  const value = process.env.VALUE;
+  const value = process.env.VALUE ?? process.argv[2];
   if (value === undefined) {
-    throw new Error("Set VALUE env var first, e.g. $env:VALUE=\"4242\"");
+    throw new Error("No value provided. Use env VALUE or pass as arg: `npx hardhat run scripts/set.js 4242`");
   }
 
-  const addr = await resolveAddress(network.name);
-  const [signer] = await ethers.getSigners();
-  const simple = await ethers.getContractAt("SimpleStorage", addr, signer);
+  const addr = await resolveAddress();
 
-  const before = await simple.get();
-  console.log("Before:", before.toString());
+  // привяжем контракта к деплоеру (на всякий случай)
+  const [deployer] = await hre.ethers.getSigners();
+  const storage = await hre.ethers.getContractAt("SimpleStorage", addr, deployer);
 
-  const tx = await simple.set(value);
+  console.log("Contract:", addr);
+  console.log("Setter:", await deployer.getAddress());
+  console.log("Setting value:", value);
+
+  const tx = await storage.set(value);
   console.log("tx:", tx.hash);
   await tx.wait();
 
-  const after = await simple.get();
-  console.log("After:", after.toString());
+  console.log(" set() completed");
 }
 
 main().catch((e) => {
   console.error(e);
-  process.exitCode = 1;
+  process.exit(1);
 });

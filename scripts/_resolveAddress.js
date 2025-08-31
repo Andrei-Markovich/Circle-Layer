@@ -1,21 +1,22 @@
-const fs = require("fs");
+﻿const fs = require("fs");
 const path = require("path");
 
-function resolveAddress() {
-  // 1) из переменных окружения
-  const envs = [process.env.SIMPLE_STORAGE, process.env.TRUFFLE_SIMPLE_STORAGE];
-  for (const v of envs) {
-    if (v && /^0x[a-fA-F0-9]{40}$/.test(v)) return v;
+async function resolveAddress() {
+  // 1) .env
+  const envAddr = process.env.SIMPLE_STORAGE;
+  if (envAddr && /^0x[a-fA-F0-9]{40}$/.test(envAddr)) return envAddr;
+
+  // 2) deployments/<network>/SimpleStorage.json
+  const network = process.env.HARDHAT_NETWORK || "circleLayerTestnet";
+  const file = path.join(__dirname, "..", "deployments", network, "SimpleStorage.json");
+  if (fs.existsSync(file)) {
+    const { address } = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (address && /^0x[a-fA-F0-9]{40}$/.test(address)) return address;
   }
 
-  // 2) из deployments
-  const p = path.join(__dirname, "..", "deployments", "circleLayerTestnet", "SimpleStorage.json");
-  if (fs.existsSync(p)) {
-    const data = JSON.parse(fs.readFileSync(p, "utf8"));
-    if (data.address && /^0x[a-fA-F0-9]{40}$/.test(data.address)) return data.address;
-  }
-
-  throw new Error("SimpleStorage address not found. Set SIMPLE_STORAGE in .env or deploy first.");
+  throw new Error(
+    "SimpleStorage address not found. Set SIMPLE_STORAGE in .env or create deployments/<network>/SimpleStorage.json"
+  );
 }
 
-module.exports = resolveAddress;
+module.exports = { resolveAddress };
