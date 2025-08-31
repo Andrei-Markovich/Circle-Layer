@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write      # для автокоммита deployments/*
+  actions: write       # для обновления Actions Variables API
 
 jobs:
   deploy:
@@ -12,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    # Секреты прокидываем в env и проверяем их на уровне шагов
     env:
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
       PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
@@ -39,7 +39,6 @@ jobs:
       - name: Compile
         run: npx hardhat compile
 
-      # Деплой выполняем только если есть RPC и приватный ключ
       - name: Deploy
         if: ${{ env.CIRCLE_RPC_URL && env.PRIVATE_KEY }}
         id: deploy
@@ -89,6 +88,31 @@ jobs:
           commit_message: "ci: track deployed SimpleStorage address"
           file_pattern: deployments/circleLayerTestnet/SimpleStorage.json
 
+      # 🔁 Обновляем/создаём Actions Variable SIMPLE_STORAGE в репозитории
+      - name: Update repo variable SIMPLE_STORAGE
+        if: ${{ steps.deploy.outputs.address != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const addr  = '${{ steps.deploy.outputs.address }}';
+            const {owner, repo} = context.repo;
+            const name = 'SIMPLE_STORAGE';
+            try {
+              await github.request('PATCH /repos/{owner}/{repo}/actions/variables/{name}', {
+                owner, repo, name, value: addr
+              });
+              core.info(`Updated variable ${name}=${addr}`);
+            } catch (e) {
+              if (e.status === 404) {
+                await github.request('POST /repos/{owner}/{repo}/actions/variables', {
+                  owner, repo, name, value: addr
+                });
+                core.info(`Created variable ${name}=${addr}`);
+              } else {
+                core.setFailed(`Failed to upsert variable: ${e.message}`);
+              }
+            }
+
       - name: Smoke read (non-blocking)
         if: ${{ steps.deploy.outputs.address != '' }}
         continue-on-error: true
@@ -96,7 +120,6 @@ jobs:
           SIMPLE_STORAGE: ${{ steps.deploy.outputs.address }}
         run: npm run read
 
->>>>>>> 28a6b9b (ci: add manual deploy workflow with smoke read)
       - name: Upload artifacts (deploy log + deployments/)
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -104,4 +127,6 @@ jobs:
           name: deploy-output
           path: |
             deploy.log
-            deployments/
+            deployments/**
+          if-no-files-found: ignore
+          retention-days: 7
