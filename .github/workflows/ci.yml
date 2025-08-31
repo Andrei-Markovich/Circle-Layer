@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   push:
@@ -25,6 +25,10 @@ jobs:
       - name: Install deps (omit optional)
         run: npm ci --omit=optional || npm i --omit=optional
 
+      # ⬇⬇⬇ ВАЖНО: ставим анализатор для Linux без сохранения
+      - name: Install Hardhat analyzer (Linux)
+        run: npm i -D --no-save @nomicfoundation/solidity-analyzer-linux-x64-gnu
+
       - name: Compile
         run: npx hardhat compile
 
@@ -50,6 +54,10 @@ jobs:
 
       - name: Install deps (omit optional)
         run: npm ci --omit=optional || npm i --omit=optional
+
+      # ⬇⬇⬇ Анализатор нужен и тут (деплой триггерит компиляцию)
+      - name: Install Hardhat analyzer (Linux)
+        run: npm i -D --no-save @nomicfoundation/solidity-analyzer-linux-x64-gnu
 
       - name: Deploy
         shell: bash
