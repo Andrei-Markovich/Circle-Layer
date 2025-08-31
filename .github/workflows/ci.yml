@@ -10,30 +10,24 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
-
-    # Эти переменные видны во всех шагах
     env:
-      # Глобально говорим npm не ставить optional deps (fsevents)
+      # пропускаем optional deps (дублируем в .npmrc)
       npm_config_optional: "false"
-      # Секреты подтягиваем в env и дальше используем только env.*
-      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-      SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
-      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+      CIRCLE_RPC_URL: ${{ env.CIRCLE_RPC_URL || secrets.CIRCLE_RPC_URL }}
+      SIMPLE_STORAGE: ${{ env.SIMPLE_STORAGE || secrets.SIMPLE_STORAGE }}
+      PRIVATE_KEY: ${{ env.PRIVATE_KEY || secrets.PRIVATE_KEY }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
       - name: Install deps (skip optional)
-        # Дублируем защиту флагом на случай старого lockfile
         run: |
-          npm ci --omit=optional
+          npm ci --no-optional || npm ci --omit=optional
 
       - name: Compile
         run: npx hardhat compile
