@@ -28,7 +28,6 @@ jobs:
     env:
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
       PRIVATE_KEY:     ${{ secrets.PRIVATE_KEY }}
-      # если хочешь переиспользовать существующий адрес — пробросим тоже
       SIMPLE_STORAGE:  ${{ secrets.SIMPLE_STORAGE }}
       CI: "true"
       NPM_CONFIG_AUDIT: "false"
@@ -67,7 +66,6 @@ jobs:
           HH_NETWORK: ${{ inputs.network }}
         run: |
           set -euo pipefail
-          # Запустим деплой и поймаем адрес из вывода
           DEPLOY_LOG=deploy.log
           npx hardhat run --network "$HH_NETWORK" scripts/deploySimpleStorage.js | tee "$DEPLOY_LOG"
 
@@ -80,20 +78,29 @@ jobs:
 
           echo "address=$ADDR" >> "$GITHUB_OUTPUT"
 
-          # запишем метаданные деплоя
           mkdir -p "deployments/$HH_NETWORK"
           jq -n --arg address "$ADDR" --arg network "$HH_NETWORK" \
             --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{address:$address, network:$network, deployedAt:$time}' \
             > "deployments/$HH_NETWORK/SimpleStorage.json"
 
-          # Отобразим в Summary
           {
             echo "## Deploy summary"
             echo ""
             echo "- **Network**: \`$HH_NETWORK\`"
             echo "- **Address**: \`$ADDR\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save address into repo secret SIMPLE_STORAGE
+        if: steps.deploy.outputs.address != ''
+        env:
+          GH_TOKEN: ${{ secrets.ADMIN_TOKEN }}   # PAT с правами repo/workflow
+          REPO:     ${{ github.repository }}
+          ADDR:     ${{ steps.deploy.outputs.address }}
+        shell: bash
+        run: |
+          echo -n "$ADDR" | gh secret set SIMPLE_STORAGE -R "$REPO" -b-
+          echo "✅ Repo secret SIMPLE_STORAGE обновлён на $ADDR" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set value (optional)
         if: inputs.value != ''
