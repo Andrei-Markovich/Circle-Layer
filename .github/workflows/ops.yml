@@ -1,0 +1,62 @@
+name: Contract ops (read/set)
+
+on:
+  workflow_dispatch:
+    inputs:
+      op:
+        description: "Operation"
+        type: choice
+        required: true
+        options: [read, set]
+        default: read
+      value:
+        description: "Value for set()"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
+      SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps (skip optional)
+        run: |
+          npm ci --omit=optional || npm install --omit=optional
+
+      - name: Add Solidity analyzer (Linux)
+        if: runner.os == 'Linux'
+        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu || true
+
+      - name: Compile
+        run: npx hardhat compile
+
+      - name: Read
+        if: ${{ inputs.op == 'read' }}
+        run: npm run read
+
+      - name: Set
+        if: ${{ inputs.op == 'set' }}
+        env:
+          VALUE: ${{ inputs.value }}
+        run: npm run set
+
+      - name: Summary
+        run: |
+          echo "### ✅ ${{
+            (github.event.inputs.op == 'read' && 'read finished') || 'set finished'
+          }}" >> $GITHUB_STEP_SUMMARY
