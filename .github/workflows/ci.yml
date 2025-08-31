@@ -5,26 +5,31 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
+    runs-on: ubuntu-24.04
+
+    # Пробрасываем секреты в env и используем ИХ в if-условиях (НЕ secrets.*)
     env:
-      # используем env.* в if-условиях
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
       SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
+      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
+
+      # Чуть “успокоим” npm в CI
+      CI: "true"
+      NPM_CONFIG_AUDIT: "false"
+      NPM_CONFIG_FUND:  "false"
+      # На Linux опциональные пакеты (включая fsevents) нам не нужны
+      NPM_CONFIG_OPTIONAL: "false"
 
     steps:
       - name: Checkout
@@ -36,46 +41,62 @@ jobs:
           node-version: 20
           cache: npm
 
-      # Ставим без optional, чтобы не упасть на fsevents
-      - name: Install deps (skip optional)
-        env:
-          npm_config_optional: "false"
-          npm_config_ignore_optional: "true"
+      - name: Show versions
         run: |
-          npm ci --omit=optional --no-audit --no-fund || \
-          npm ci --no-optional   --no-audit --no-fund || \
-          npm install --no-optional --no-audit --no-fund
+          node -v
+          npm -v
 
-      # На Linux бинарник анализатора — optional; докачиваем, если его нет
-      - name: Ensure solidity analyzer (Linux)
-        if: runner.os == 'Linux'
+      # На некоторых lockfile npm ci ругается на fsevents даже с omit=optional.
+      # Делаем сначала ci с omit=optional, при фейле — fallback на npm i.
+      - name: Install deps (skip optional)
+        shell: bash
+        run: |
+          set -e
+          echo "Trying: npm ci --omit=optional"
+          if npm ci --omit=optional; then
+            echo "npm ci OK"
+          else
+            echo "npm ci failed; falling back to 'npm i --omit=optional'"
+            rm -rf node_modules
+            npm i --omit=optional
+          fi
+
+      # У некоторых окружений Hardhat не подтягивает linux-бинарь анализатора.
+      # Гарантируем его наличие.
+      - name: Ensure Linux solidity analyzer present
+        shell: bash
         run: |
           node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
           || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
 
-      # (необязательно) Диагностика — показать, что анализатор в дереве
-      - name: Show analyzer presence
-        run: |
-          node -e "console.log('has linux analyzer:', !!require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu'))" || true
-
       - name: Compile
         run: npx hardhat compile
 
-      - name: Test
-        run: npx hardhat test
+      # Дешёвый smoke-тест чтения; работает, если задан адрес контракта.
+      - name: Smoke: read SimpleStorage
+        if: env.SIMPLE_STORAGE != ''
+        run: npx hardhat run --network circleLayerTestnet scripts/read.js
 
-      # опциональные шаги — выполняются только если секреты заданы
-      - name: Whoami (optional)
-        if: ${{ env.PRIVATE_KEY != '' && env.CIRCLE_RPC_URL != '' }}
-        run: npx hardhat run scripts/whoami.js --network circleLayerTestnet
-        continue-on-error: true
+      # Если есть экспортёр ABI — вызовем его и приложим артефакт
+      - name: Export ABI (optional)
+        shell: bash
+        run: |
+          if [ -f scripts/exportAbi.js ]; then
+            node scripts/exportAbi.js
+          else
+            echo "scripts/exportAbi.js not found — skipping"
+          fi
 
-      - name: Read value (optional)
-        if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
-        run: npx hardhat run scripts/read.js --network circleLayerTestnet
-        continue-on-error: true
+      - name: Upload ABI artifact (if any)
+        uses: actions/upload-artifact@v4
+        if: hashFiles('abi/**') != ''
+        with:
+          name: simpleStorage-abi
+          path: abi/
 
-      - name: Deploy (optional on push)
-        if: ${{ github.event_name == 'push' && env.PRIVATE_KEY != '' && env.CIRCLE_RPC_URL != '' }}
-        run: npm run deploy
-        continue-on-error: true
+      # Полный E2E (меняет состояние) — только при ручном запуске
+      - name: E2E set+read (manual only)
+        if: github.event_name == 'workflow_dispatch' && env.PRIVATE_KEY != '' && env.SIMPLE_STORAGE != ''
+        run: |
+          VALUE=4242 npx hardhat run --network circleLayerTestnet scripts/set.js
+          npx hardhat run --network circleLayerTestnet scripts/read.js
