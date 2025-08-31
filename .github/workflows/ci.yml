@@ -13,6 +13,12 @@ jobs:
     permissions:
       contents: read
 
+    # Прокидываем секреты в окружение job
+    env:
+      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+      SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,18 +40,12 @@ jobs:
 
       # ===== Optional: прочитать значение из SimpleStorage на тестнете =====
       - name: Read from testnet (optional)
-        if: ${{ github.event_name != 'pull_request' && secrets.CIRCLE_RPC_URL != '' && secrets.SIMPLE_STORAGE != '' }}
-        env:
-          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-          SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
+        if: ${{ github.event_name != 'pull_request' && env.CIRCLE_RPC_URL != '' && env.SIMPLE_STORAGE != '' }}
         run: npm run read
 
       # ===== Optional: записать значение в SimpleStorage на тестнете =====
       - name: Set on testnet (optional)
-        if: ${{ github.event_name != 'pull_request' && secrets.CIRCLE_RPC_URL != '' && secrets.SIMPLE_STORAGE != '' && secrets.PRIVATE_KEY != '' }}
+        if: ${{ github.event_name != 'pull_request' && env.CIRCLE_RPC_URL != '' && env.SIMPLE_STORAGE != '' && env.PRIVATE_KEY != '' }}
         env:
-          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-          SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
           VALUE: "4242"
         run: npm run set
