@@ -10,18 +10,21 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    # Прокидываем секреты в окружение шагов (НЕ используем secrets в "if")
+    defaults:
+      run:
+        shell: bash
     env:
+      # Пробрасываем секреты в env (в if ниже используем только env.*, а не secrets.*)
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
       PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
       SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
-      # Глобально отключаем опциональные зависимости (fsevents и т.п.)
-      npm_config_optional: "false"
-      npm_config_ignore_optional: "true"
 
     steps:
       - name: Checkout
@@ -33,29 +36,15 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Show npm info
+      # Главное: ставим зависимости без optional (fsevents и т.п.)
+      - name: Install deps (skip optional)
+        env:
+          npm_config_optional: "false"
+          npm_config_ignore_optional: "true"
         run: |
-          node -v
-          npm -v
-          npm config get optional
-          npm config get ignore-optional
-
-      # Ключевой шаг: ставим зависимости без optional; если ci падает — откатываемся на install
-      - name: Install deps (skip optional; tolerate EBADPLATFORM)
-        run: |
-          set -e
-          if [ -f package-lock.json ]; then
-            echo "Using npm ci (omit optional)…"
-            npm ci --omit=optional --no-audit || {
-              echo "npm ci failed, fallback to npm install (omit optional)…"
-              npm cache clean --force || true
-              rm -rf node_modules || true
-              npm install --omit=optional --no-audit
-            }
-          else
-            echo "No package-lock.json; using npm install (omit optional)…"
-            npm install --omit=optional --no-audit
-          fi
+          npm ci --omit=optional --no-audit --no-fund || \
+          npm ci --no-optional --no-audit --no-fund || \
+          npm install --no-optional --no-audit --no-fund
 
       - name: Compile
         run: npx hardhat compile
@@ -63,13 +52,18 @@ jobs:
       - name: Test
         run: npx hardhat test
 
-      # Опциональный шаг чтения ончейна — выполняется только если секреты реально заданы.
-      # Никаких выражений с secrets в if: проверяем в шелле.
-      - name: Read on-chain (optional)
-        run: |
-          if [ -n "$CIRCLE_RPC_URL" ] && [ -n "$SIMPLE_STORAGE" ]; then
-            echo "Secrets present -> running npm run read"
-            npm run read || true
-          else
-            echo "Skipping read: CIRCLE_RPC_URL or SIMPLE_STORAGE is not set"
-          fi
+      # Дополнительные шаги — выполняются только если заданы нужные переменные.
+      - name: Whoami (optional)
+        if: ${{ env.PRIVATE_KEY != '' && env.CIRCLE_RPC_URL != '' }}
+        run: npx hardhat run scripts/whoami.js --network circleLayerTestnet
+        continue-on-error: true
+
+      - name: Read value (optional)
+        if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
+        run: npx hardhat run scripts/read.js --network circleLayerTestnet
+        continue-on-error: true
+
+      - name: Deploy (optional on push)
+        if: ${{ github.event_name == 'push' && env.PRIVATE_KEY != '' && env.CIRCLE_RPC_URL != '' }}
+        run: npm run deploy
+        continue-on-error: true
