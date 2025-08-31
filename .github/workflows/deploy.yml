@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # нужно для автокоммита адреса
 
 jobs:
   deploy:
-    name: Deploy & Smoke read
+    name: Deploy & persist address
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -64,6 +64,28 @@ jobs:
             echo ""
             echo "**Address:** \`$ADDR\`"
           } >> $GITHUB_STEP_SUMMARY
+
+      - name: Persist address to repo (deployments/…)
+        if: ${{ steps.deploy.outputs.address != '' }}
+        shell: bash
+        run: |
+          set -e
+          ADDR="${{ steps.deploy.outputs.address }}"
+          mkdir -p deployments/circleLayerTestnet
+          cat > deployments/circleLayerTestnet/SimpleStorage.json <<EOF
+          {
+            "address": "$ADDR",
+            "network": "circleLayerTestnet",
+            "updated": "$(date -u +%FT%TZ)"
+          }
+          EOF
+
+      - name: Auto-commit deployments file
+        if: ${{ steps.deploy.outputs.address != '' }}
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci: track deployed SimpleStorage address"
+          file_pattern: deployments/circleLayerTestnet/SimpleStorage.json
 
       - name: Smoke read (non-blocking)
         if: ${{ steps.deploy.outputs.address != '' }}
