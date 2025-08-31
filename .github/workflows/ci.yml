@@ -2,81 +2,52 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build_test:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Use Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
           cache: 'npm'
+      - run: npm ci --omit=optional
+      - run: npx hardhat compile
+        # запасной план на случай редкой ошибки анализатора (не свалит билд):
+      - run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu || true
 
-      - name: Install deps (omit optional)
-        run: npm ci --omit=optional || npm i --omit=optional
-
-      # ⬇⬇⬇ ВАЖНО: ставим анализатор для Linux без сохранения
-      - name: Install Hardhat analyzer (Linux)
-        run: npm i -D --no-save @nomicfoundation/solidity-analyzer-linux-x64-gnu
-
-      - name: Compile
-        run: npx hardhat compile
-
-      - name: Test
-        run: npx hardhat test
-
-  deploy:
-    needs: build_test
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+  test:
     runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci --omit=optional
+      - run: npx hardhat test
+
+  read_value:
+    name: Read on Circle testnet (optional)
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ secrets.CIRCLE_RPC_URL != '' && secrets.SIMPLE_STORAGE != '' }}
     env:
+      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+      SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
+      # PRIVATE_KEY не обязателен для чтения; добавь при необходимости
       PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-      EXPLORER_BASE: ''
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Use Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
           cache: 'npm'
-
-      - name: Install deps (omit optional)
-        run: npm ci --omit=optional || npm i --omit=optional
-
-      # ⬇⬇⬇ Анализатор нужен и тут (деплой триггерит компиляцию)
-      - name: Install Hardhat analyzer (Linux)
-        run: npm i -D --no-save @nomicfoundation/solidity-analyzer-linux-x64-gnu
-
-      - name: Deploy
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run -s deploy | tee deploy.log
-          addr=$(sed -n 's/^SimpleStorage address: //p' deploy.log | tail -1)
-          if [[ -z "$addr" ]]; then
-            echo "::error::Couldn't parse SimpleStorage address from deploy output"
-            cat deploy.log
-            exit 1
-          fi
-          echo "SIMPLE_STORAGE=$addr"          >> "$GITHUB_ENV"
-          echo "TRUFFLE_SIMPLE_STORAGE=$addr"  >> "$GITHUB_ENV"
-          {
-            echo "### Deployed SimpleStorage"
-            echo
-            echo "Address: $addr"
-            if [[ -n "${EXPLORER_BASE:-}" ]]; then
-              echo "Explorer: ${EXPLORER_BASE}/address/$addr"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+      - run: npm ci --omit=optional
+      - run: npx hardhat run --network circleLayerTestnet scripts/read.js
