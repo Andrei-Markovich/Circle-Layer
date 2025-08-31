@@ -2,18 +2,18 @@
     "name":  "my-project",
     "version":  "1.0.0",
     "main":  "index.js",
-    {
-  "scripts": {
-    "compile": "hardhat compile",
-    "test": "hardhat test",
-    "deploy": "hardhat run scripts/deploySimpleStorage.js --network circleLayerTestnet",
-    "export-abi": "node scripts/exportAbi.js",
-    "read": "hardhat run --network circleLayerTestnet scripts/read.js",
-    "set": "hardhat run --network circleLayerTestnet scripts/set.js",
-    "whoami": "hardhat run --network circleLayerTestnet scripts/whoami.js",
-    "check:balance": "hardhat run --network circleLayerTestnet scripts/checkBalance.js"
-  }
-},
+    "scripts":  {
+                    "test":  "echo \"Error: no test specified\" \u0026\u0026 exit 1",
+                    "compile":  "hardhat compile",
+                    "check":  "hardhat run scripts/checkConnection.js --network circleLayerTestnet",
+                    "deploy":  "hardhat run scripts/deploySimpleStorage.js --network circleLayerTestnet",
+                    "use":  "hardhat run scripts/useSimpleStorage.js --network circleLayerTestnet",
+                    "truffle:migrate":  "truffle migrate --network circleLayerTestnet --reset",
+                    "truffle:console":  "truffle console --network circleLayerTestnet",
+                    "prepare":  "husky install",
+                    "read":  "hardhat run --network circleLayerTestnet scripts/read.js",
+                    "set":  "hardhat run --network circleLayerTestnet scripts/set.js"
+                },
     "keywords":  [
 
                  ],
