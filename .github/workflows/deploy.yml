@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
+<<<<<<< HEAD
   contents: write   # нужно для автокоммита адреса
 
 jobs:
@@ -12,6 +13,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+=======
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy & Smoke read
+    runs-on: ubuntu-latest
+
+    # Секреты прокидываем в env и проверяем их на уровне шагов
+>>>>>>> 28a6b9b (ci: add manual deploy workflow with smoke read)
     env:
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
       PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
@@ -38,6 +49,7 @@ jobs:
       - name: Compile
         run: npx hardhat compile
 
+<<<<<<< HEAD
       - name: Deploy
         if: ${{ env.CIRCLE_RPC_URL && env.PRIVATE_KEY }}
         id: deploy
@@ -94,6 +106,39 @@ jobs:
           SIMPLE_STORAGE: ${{ steps.deploy.outputs.address }}
         run: npm run read
 
+=======
+      # Деплой выполняем только если есть RPC и приватный ключ
+      - name: Deploy
+        if: ${{ env.CIRCLE_RPC_URL && env.PRIVATE_KEY }}
+        id: deploy
+        run: |
+          set -e
+          echo "Running deploy..."
+          npm run deploy | tee deploy.log
+
+          echo "---- Parse address from output ----"
+          ADDR=$(grep -iE "Address:\s*0x[a-fA-F0-9]{40}" deploy.log | head -n1 | sed -E 's/.*Address:\s*(0x[a-fA-F0-9]{40}).*/\1/')
+          if [ -z "$ADDR" ]; then
+            echo "❌ Не удалось извлечь адрес из лога деплоя"
+            exit 1
+          fi
+          echo "address=$ADDR" >> $GITHUB_OUTPUT
+          echo "SIMPLE_STORAGE=$ADDR" >> $GITHUB_ENV
+
+          # Запишем адрес в сводку
+          {
+            echo "## ✅ Deploy completed"
+            echo ""
+            echo "**Contract:** SimpleStorage"
+            echo ""
+            echo "**Address:** \`$ADDR\`"
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Smoke read (use freshly deployed address)
+        if: ${{ steps.deploy.outputs.address && github.event_name != 'pull_request' }}
+        run: npm run read
+
+>>>>>>> 28a6b9b (ci: add manual deploy workflow with smoke read)
       - name: Upload artifacts (deploy log + deployments/)
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -101,6 +146,10 @@ jobs:
           name: deploy-output
           path: |
             deploy.log
+<<<<<<< HEAD
             deployments/**
           if-no-files-found: ignore
           retention-days: 7
+=======
+            deployments/
+>>>>>>> 28a6b9b (ci: add manual deploy workflow with smoke read)
