@@ -8,39 +8,22 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build_test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20.x"
           cache: "npm"
 
       - name: Install dependencies (omit optional)
-        run: npm ci --omit=optional || npm install --omit=optional
-
-      - name: Install solidity analyzer for Linux
-        if: runner.os == 'Linux'
-        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+        run: npm ci --omit=optional || npm i --omit=optional
 
       - name: Compile
-        run: npm run compile
-
+        run: npx hardhat compile
       - name: Test
         run: npx hardhat test
-
-      - name: Who am I (print deployer & balance)
-        env:
-        PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          out=$(npx hardhat run scripts/whoami.js --network circleLayerTestnet)
-          echo "$out"
-          echo "### Deployer check" >> "$GITHUB_STEP_SUMMARY"
-          echo "$out" >> "$GITHUB_STEP_SUMMARY"
 
 
   deploy:
@@ -65,36 +48,48 @@ jobs:
       - name: Install solidity analyzer for Linux
         if: runner.os == 'Linux'
         run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
-
+deploy:
+    needs: build_test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    env:
+      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+      # при желании добавь в Secrets EXPLORER_BASE и раскомментируй ссылку в summary
+      EXPLORER_BASE: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+      - name: Install deps (omit optional)
+        run: npm ci --omit=optional || npm i --omit=optional
       - name: Deploy
-        id: deploy
-        env:
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-          EXPLORER_BASE: ${{ vars.EXPLORER_BASE }}
         shell: bash
         run: |
           set -euo pipefail
-          # deploy and capture output
           npm run -s deploy | tee deploy.log
 
-          # parse address
+          # Ожидаем строку вида: "SimpleStorage address: 0xABC..."
           addr=$(sed -n 's/^SimpleStorage address: //p' deploy.log | tail -1)
+
           if [[ -z "$addr" ]]; then
             echo "::error::Couldn't parse SimpleStorage address from deploy output"
             cat deploy.log
             exit 1
           fi
+
           echo "SIMPLE_STORAGE=$addr"          >> "$GITHUB_ENV"
           echo "TRUFFLE_SIMPLE_STORAGE=$addr"  >> "$GITHUB_ENV"
-          echo "address=$addr"                 >> "$GITHUB_OUTPUT"
 
-          # summary
-          echo "### Deployed SimpleStorage"            >> "$GITHUB_STEP_SUMMARY"
-          echo                                         >> "$GITHUB_STEP_SUMMARY"
-          echo "Address: $addr"                        >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "${EXPLORER_BASE:-}" ]; then
-            echo "Explorer: ${EXPLORER_BASE}/address/$addr" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          {
+            echo "### Deployed SimpleStorage"
+            echo
+            echo "Address: $addr"
+            if [[ -n "${EXPLORER_BASE:-}" ]]; then
+              echo "Explorer: ${EXPLORER_BASE}/address/$addr"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Export ABI
         env:
