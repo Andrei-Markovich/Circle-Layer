@@ -5,11 +5,12 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
+<<<<<<< HEAD
 jobs:
   build:
     name: Build & Test
@@ -48,10 +49,25 @@ jobs:
 
     # Прокидываем секреты в env. Так можно делать проверки по env в шагах,
     # не используя secrets.* в условиях job'а (чтобы не ловить ошибки парсера).
+=======
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+>>>>>>> bf1ec90 (ci: fix yaml, quote step name; keep analyzer + omit optional)
     env:
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
       SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
+      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
+
+      CI: "true"
+      NPM_CONFIG_AUDIT: "false"
+      NPM_CONFIG_FUND:  "false"
+      NPM_CONFIG_OPTIONAL: "false"   # отключаем optional deps (fsevents и т.п.)
 
     steps:
       - name: Checkout
@@ -63,6 +79,7 @@ jobs:
           node-version: 20
           cache: npm
 
+<<<<<<< HEAD
       - name: Install deps (skip optional)
         run: |
           npm ci --omit=optional || npm install --omit=optional
@@ -75,3 +92,59 @@ jobs:
       - name: Read value from chain
         if: ${{ env.CIRCLE_RPC_URL && env.PRIVATE_KEY && env.SIMPLE_STORAGE && github.event_name != 'pull_request' }}
         run: npm run read
+=======
+      - name: Show versions
+        run: |
+          node -v
+          npm -v
+
+      - name: Install deps (skip optional)
+        shell: bash
+        run: |
+          set -e
+          echo "Trying: npm ci --omit=optional"
+          if npm ci --omit=optional; then
+            echo "npm ci OK"
+          else
+            echo "npm ci failed; falling back to 'npm i --omit=optional'"
+            rm -rf node_modules
+            npm i --omit=optional
+          fi
+
+      - name: Ensure Linux solidity analyzer present
+        shell: bash
+        run: |
+          node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
+          || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+
+      - name: Compile
+        run: npx hardhat compile
+
+      # Лёгкий smoke-тест чтения — только если задан адрес контракта
+      - name: Smoke - read SimpleStorage
+        if: ${{ env.SIMPLE_STORAGE != '' }}
+        run: npx hardhat run --network circleLayerTestnet scripts/read.js
+
+      - name: Export ABI (optional)
+        shell: bash
+        run: |
+          if [ -f scripts/exportAbi.js ]; then
+            node scripts/exportAbi.js
+          else
+            echo "scripts/exportAbi.js not found — skipping"
+          fi
+
+      - name: Upload ABI artifact (if any)
+        if: ${{ hashFiles('abi/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: simpleStorage-abi
+          path: abi/
+
+      # Полный E2E (меняет состояние) — только вручную
+      - name: E2E set+read (manual only)
+        if: ${{ github.event_name == 'workflow_dispatch' && env.PRIVATE_KEY != '' && env.SIMPLE_STORAGE != '' }}
+        run: |
+          VALUE=4242 npx hardhat run --network circleLayerTestnet scripts/set.js
+          npx hardhat run --network circleLayerTestnet scripts/read.js
+>>>>>>> bf1ec90 (ci: fix yaml, quote step name; keep analyzer + omit optional)
