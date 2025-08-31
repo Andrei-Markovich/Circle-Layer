@@ -1,130 +1,84 @@
-name: Deploy
+name: Deploy SimpleStorage
 
 on:
   workflow_dispatch:
-    inputs:
-      network:
-        description: "Hardhat network"
-        type: choice
-        required: true
-        default: circleLayerTestnet
-        options:
-          - circleLayerTestnet
-      value:
-        description: "Value to set after deploy (optional)"
-        required: false
-        default: ""
 
 permissions:
   contents: read
 
-concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   deploy:
-    runs-on: ubuntu-24.04
+    name: Deploy & Smoke read
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     env:
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-      PRIVATE_KEY:     ${{ secrets.PRIVATE_KEY }}
-      SIMPLE_STORAGE:  ${{ secrets.SIMPLE_STORAGE }}
-      CI: "true"
-      NPM_CONFIG_AUDIT: "false"
-      NPM_CONFIG_FUND: "false"
-      NPM_CONFIG_OPTIONAL: "false"
+      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
+      SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
       - name: Install deps (skip optional)
-        shell: bash
         run: |
-          set -e
-          npm ci --omit=optional || (rm -rf node_modules && npm i --omit=optional)
+          npm ci --omit=optional || npm install --omit=optional
 
-      - name: Ensure Linux solidity analyzer present
-        shell: bash
-        run: |
-          node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" || \
-          npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+      - name: Add Solidity analyzer (Linux)
+        if: runner.os == 'Linux'
+        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu || true
 
       - name: Compile
         run: npx hardhat compile
 
-      - name: Deploy SimpleStorage
+      - name: Deploy
+        if: ${{ env.CIRCLE_RPC_URL && env.PRIVATE_KEY }}
         id: deploy
         shell: bash
-        env:
-          HH_NETWORK: ${{ inputs.network }}
         run: |
-          set -euo pipefail
-          DEPLOY_LOG=deploy.log
-          npx hardhat run --network "$HH_NETWORK" scripts/deploySimpleStorage.js | tee "$DEPLOY_LOG"
+          set -e
+          echo "Running deploy..."
+          npm run deploy | tee deploy.log
 
-          ADDR=$(grep -oE '0x[a-fA-F0-9]{40}' "$DEPLOY_LOG" | tail -n1 || true)
+          echo "---- Parse address from output ----"
+          ADDR=$(grep -iE "Address:\s*0x[a-fA-F0-9]{40}" deploy.log | head -n1 | sed -E 's/.*Address:\s*(0x[a-fA-F0-9]{40}).*/\1/')
           if [ -z "$ADDR" ]; then
-            echo "Не удалось извлечь адрес контракта из лога:"
-            cat "$DEPLOY_LOG"
+            echo "❌ Не удалось извлечь адрес из лога деплоя"
             exit 1
           fi
 
-          echo "address=$ADDR" >> "$GITHUB_OUTPUT"
-
-          mkdir -p "deployments/$HH_NETWORK"
-          jq -n --arg address "$ADDR" --arg network "$HH_NETWORK" \
-            --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{address:$address, network:$network, deployedAt:$time}' \
-            > "deployments/$HH_NETWORK/SimpleStorage.json"
+          echo "address=$ADDR" >> $GITHUB_OUTPUT
+          echo "SIMPLE_STORAGE=$ADDR" >> $GITHUB_ENV
 
           {
-            echo "## Deploy summary"
+            echo "## ✅ Deploy completed"
             echo ""
-            echo "- **Network**: \`$HH_NETWORK\`"
-            echo "- **Address**: \`$ADDR\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "**Network:** \`circleLayerTestnet\`"
+            echo ""
+            echo "**Address:** \`$ADDR\`"
+          } >> $GITHUB_STEP_SUMMARY
 
-      - name: Save address into repo secret SIMPLE_STORAGE
-        if: steps.deploy.outputs.address != ''
+      - name: Smoke read (non-blocking)
+        if: ${{ steps.deploy.outputs.address != '' }}
+        continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.ADMIN_TOKEN }}   # PAT с правами repo/workflow
-          REPO:     ${{ github.repository }}
-          ADDR:     ${{ steps.deploy.outputs.address }}
-        shell: bash
-        run: |
-          echo -n "$ADDR" | gh secret set SIMPLE_STORAGE -R "$REPO" -b-
-          echo "✅ Repo secret SIMPLE_STORAGE обновлён на $ADDR" >> "$GITHUB_STEP_SUMMARY"
+          SIMPLE_STORAGE: ${{ steps.deploy.outputs.address }}
+        run: npm run read
 
-      - name: Set value (optional)
-        if: inputs.value != ''
-        shell: bash
-        env:
-          HH_NETWORK: ${{ inputs.network }}
-          VALUE: ${{ inputs.value }}
-        run: |
-          set -e
-          echo "Setting value: $VALUE"
-          VALUE="$VALUE" npx hardhat run --network "$HH_NETWORK" scripts/set.js
-
-      - name: Read back
-        shell: bash
-        env:
-          HH_NETWORK: ${{ inputs.network }}
-        run: |
-          npx hardhat run --network "$HH_NETWORK" scripts/read.js
-
-      - name: Upload deployment artifacts
+      - name: Upload artifacts (deploy log + deployments/)
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: deployment-${{ inputs.network }}
+          name: deploy-output
           path: |
-            deployments/${{ inputs.network }}/SimpleStorage.json
             deploy.log
-          if-no-files-found: warn
+            deployments/**
+          if-no-files-found: ignore
+          retention-days: 7
