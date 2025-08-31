@@ -10,50 +10,42 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
-      - run: npm ci --omit=optional
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
       - name: Compile
         run: npx hardhat compile
-      - name: Linux analyzer hotfix (no-save)
-        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu --no-save || true
 
-  test:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-      - run: npm ci --omit=optional
-      - run: npx hardhat test
+      - name: Test
+        run: npx hardhat test
 
-  read_value:
-    name: Read on Circle testnet (optional)
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Read if secrets present
+      # ===== Optional: прочитать значение из SimpleStorage на тестнете =====
+      - name: Read from testnet (optional)
+        if: ${{ github.event_name != 'pull_request' && secrets.CIRCLE_RPC_URL != '' && secrets.SIMPLE_STORAGE != '' }}
         env:
           CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
           SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
+        run: npm run read
+
+      # ===== Optional: записать значение в SimpleStorage на тестнете =====
+      - name: Set on testnet (optional)
+        if: ${{ github.event_name != 'pull_request' && secrets.CIRCLE_RPC_URL != '' && secrets.SIMPLE_STORAGE != '' && secrets.PRIVATE_KEY != '' }}
+        env:
+          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-        run: |
-          if [ -z "${CIRCLE_RPC_URL}" ] || [ -z "${SIMPLE_STORAGE}" ]; then
-            echo "Missing secrets (CIRCLE_RPC_URL or SIMPLE_STORAGE). Skipping read."
-            exit 0
-          fi
-          npm ci --omit=optional
-          npx hardhat run --network circleLayerTestnet scripts/read.js
+          SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
+          VALUE: "4242"
+        run: npm run set
