@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
-  workflow_dispatch:
+    branches: [ main ]
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -13,10 +13,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     env:
       SIMPLE_STORAGE: ${{ vars.SIMPLE_STORAGE }}
-      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
 
     steps:
       - name: Checkout
@@ -28,13 +26,10 @@ jobs:
           node-version: 20
           cache: npm
 
-      # Установка без optional-зависимостей (fsevents и т.п.)
-      - name: Install deps (Linux-safe, no optional)
-        env:
-          NPM_CONFIG_OPTIONAL: "false"
+      - name: Install deps (Linux-safe, omit optional)
         run: |
           set -e
-          npm ci --omit=optional || npm install --omit=optional
+          npm ci --omit=optional
           npm prune --omit=optional
           npm ls fsevents || true
 
@@ -45,7 +40,23 @@ jobs:
           || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
           npx hardhat compile
 
-      # Дешёвый smoke-тест чтения; запускаем только если есть адрес и RPC
-      - name: "Smoke: read SimpleStorage (optional)"
-        if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
+      - name: Export ABI for artifacts
+        run: node scripts/exportAbi.js
+
+      - name: Upload ABI & deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: abi-and-deployment-${{ github.sha }}
+          path: |
+            abi/SimpleStorage.json
+            deployments/**/SimpleStorage.json
+            artifacts/contracts/SimpleStorage.sol/SimpleStorage.json
+          if-no-files-found: error
+          retention-days: 7
+
+      # Дешёвый smoke-тест: чтение, если задан адрес и RPC
+      - name: Smoke: read SimpleStorage (optional)
+        if: ${{ env.SIMPLE_STORAGE != '' && secrets.CIRCLE_RPC_URL != '' }}
+        env:
+          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
