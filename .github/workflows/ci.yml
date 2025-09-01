@@ -14,7 +14,6 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    # прокинем репозиторную переменную как ENV (если есть)
     env:
       SIMPLE_STORAGE: ${{ vars.SIMPLE_STORAGE }}
 
@@ -28,15 +27,24 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install deps (skip optional like fsevents)
-        run: npm ci --omit=optional
+      # --- ключевой фикс ---
+      - name: Install deps (Linux-safe, no optional)
+        env:
+          NPM_CONFIG_OPTIONAL: "false"   # принудительно выключаем optional
+        run: |
+          npm ci --omit=optional || npm install --omit=optional
+          npm prune --omit=optional
+          npm ls fsevents || true
 
       - name: Ensure analyzer & Compile
         shell: bash
         run: |
-          # если бинарь анализатора недоступен — подтянем его для Linux и скомпилим
           node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
           || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
           npx hardhat compile
 
-      
+      - name: Smoke: read SimpleStorage (optional)
+        if: env.SIMPLE_STORAGE != '' && (secrets.CIRCLE_RPC_URL != '')
+        env:
+          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+        run: npx hardhat run --network circleLayerTestnet scripts/read.js
