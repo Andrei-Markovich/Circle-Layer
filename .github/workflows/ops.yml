@@ -3,14 +3,14 @@ name: Contract ops (read/set)
 on:
   workflow_dispatch:
     inputs:
-      op:
+      mode:
         description: "Operation"
         type: choice
         required: true
         options: [read, set]
         default: read
       value:
-        description: "Value for set()"
+        description: "Value for set() (ignored for read)"
         required: false
         type: string
 
@@ -20,43 +20,53 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     env:
-      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
-      SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
-
+      NETWORK: circleLayerTestnet
+      SIMPLE_STORAGE: ${{ vars.SIMPLE_STORAGE }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - name: Install deps (skip optional)
+      - name: Install deps (Linux-safe, omit optional)
         run: |
-          npm ci --omit=optional || npm install --omit=optional
+          set -e
+          npm ci --omit=optional
+          npm prune --omit=optional
+          npm ls fsevents || true
 
-      - name: Add Solidity analyzer (Linux)
-        if: runner.os == 'Linux'
-        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu || true
+      - name: Ensure analyzer & compile
+        shell: bash
+        run: |
+          node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
+          || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+          npx hardhat compile
 
-      - name: Compile
-        run: npx hardhat compile
-
+      # read
       - name: Read
-        if: ${{ inputs.op == 'read' }}
-        run: npm run read
-
-      - name: Set
-        if: ${{ inputs.op == 'set' }}
+        if: ${{ inputs.mode == 'read' && env.SIMPLE_STORAGE != '' }}
         env:
-          VALUE: ${{ inputs.value }}
-        run: npm run set
+          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+        run: npx hardhat run --network $NETWORK scripts/read.js
+
+      # set
+      - name: Set
+        if: ${{ inputs.mode == 'set' && env.SIMPLE_STORAGE != '' && inputs.value != '' }}
+        env:
+          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+          PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
+          VALUE:          ${{ inputs.value }}
+        run: npx hardhat run --network $NETWORK scripts/set.js
 
       - name: Summary
         run: |
-          echo "### ✅ ${{
-            (github.event.inputs.op == 'read' && 'read finished') || 'set finished'
-          }}" >> $GITHUB_STEP_SUMMARY
+          echo "Contract: \`$SIMPLE_STORAGE\`" >> $GITHUB_STEP_SUMMARY
+          echo "Mode: \`${{ inputs.mode }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ inputs.value }}" ]; then
+            echo "Value: \`${{ inputs.value }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
