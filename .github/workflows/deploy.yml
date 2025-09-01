@@ -4,129 +4,79 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write      # для автокоммита deployments/*
-  actions: write       # для обновления Actions Variables API
+  contents: write
+  actions: write
+
+concurrency:
+  group: deploy-simplestorage
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy & persist address
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    env:
-      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
-      SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # нужно для rebase и пуша
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
       - name: Install deps (skip optional)
+        run: npm ci --omit=optional
+
+      - name: Compile (ensure analyzer)
+        shell: bash
         run: |
-          npm ci --omit=optional || npm install --omit=optional
-
-      - name: Add Solidity analyzer (Linux)
-        if: runner.os == 'Linux'
-        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu || true
-
-      - name: Compile
-        run: npx hardhat compile
+          node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
+          || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+          npx hardhat compile
 
       - name: Deploy
-        if: ${{ env.CIRCLE_RPC_URL && env.PRIVATE_KEY }}
-        id: deploy
-        shell: bash
+        env:
+          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+          PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
+        run: npx hardhat run --network circleLayerTestnet scripts/deploySimpleStorage.js
+
+      - name: Read deployed address
+        id: read_addr
         run: |
-          set -e
-          echo "Running deploy..."
-          npm run deploy | tee deploy.log
+          ADDR=$(jq -r .address deployments/circleLayerTestnet/SimpleStorage.json)
+          echo "ADDR=$ADDR" | tee -a $GITHUB_ENV
+          echo "addr=$ADDR" >> $GITHUB_OUTPUT
 
-          echo "---- Parse address from output ----"
-          ADDR=$(grep -iE "Address:\s*0x[a-fA-F0-9]{40}" deploy.log | head -n1 | sed -E 's/.*Address:\s*(0x[a-fA-F0-9]{40}).*/\1/')
-          if [ -z "$ADDR" ]; then
-            echo "❌ Не удалось извлечь адрес из лога деплоя"
-            exit 1
-          fi
-
-          echo "address=$ADDR" >> $GITHUB_OUTPUT
-          echo "SIMPLE_STORAGE=$ADDR" >> $GITHUB_ENV
-
-          {
-            echo "## ✅ Deploy completed"
-            echo ""
-            echo "**Network:** \`circleLayerTestnet\`"
-            echo ""
-            echo "**Address:** \`$ADDR\`"
-          } >> $GITHUB_STEP_SUMMARY
-
-      - name: Persist address to repo (deployments/…)
-        if: ${{ steps.deploy.outputs.address != '' }}
-        shell: bash
+      - name: Update Actions variable SIMPLE_STORAGE
+        if: steps.read_addr.outputs.addr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -e
-          ADDR="${{ steps.deploy.outputs.address }}"
-          mkdir -p deployments/circleLayerTestnet
-          cat > deployments/circleLayerTestnet/SimpleStorage.json <<EOF
-          {
-            "address": "$ADDR",
-            "network": "circleLayerTestnet",
-            "updated": "$(date -u +%FT%TZ)"
-          }
-          EOF
+          curl -sSf -X PATCH \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/variables/SIMPLE_STORAGE" \
+            -d "{\"name\":\"SIMPLE_STORAGE\",\"value\":\"${ADDR}\"}"
+
+      - name: Rebase with origin/main
+        run: |
+          git config user.email "ci-bot@users.noreply.github.com"
+          git config user.name  "ci-bot"
+          git fetch origin main
+          git pull --rebase origin main
 
       - name: Auto-commit deployments file
-        if: ${{ steps.deploy.outputs.address != '' }}
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "ci: track deployed SimpleStorage address"
           file_pattern: deployments/circleLayerTestnet/SimpleStorage.json
+          commit_message: "ci: track deployed SimpleStorage address"
+          push_options: '--force-with-lease'
 
-      # 🔁 Обновляем/создаём Actions Variable SIMPLE_STORAGE в репозитории
-      - name: Update repo variable SIMPLE_STORAGE
-        if: ${{ steps.deploy.outputs.address != '' }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const addr  = '${{ steps.deploy.outputs.address }}';
-            const {owner, repo} = context.repo;
-            const name = 'SIMPLE_STORAGE';
-            try {
-              await github.request('PATCH /repos/{owner}/{repo}/actions/variables/{name}', {
-                owner, repo, name, value: addr
-              });
-              core.info(`Updated variable ${name}=${addr}`);
-            } catch (e) {
-              if (e.status === 404) {
-                await github.request('POST /repos/{owner}/{repo}/actions/variables', {
-                  owner, repo, name, value: addr
-                });
-                core.info(`Created variable ${name}=${addr}`);
-              } else {
-                core.setFailed(`Failed to upsert variable: ${e.message}`);
-              }
-            }
-
-      - name: Smoke read (non-blocking)
-        if: ${{ steps.deploy.outputs.address != '' }}
-        continue-on-error: true
-        env:
-          SIMPLE_STORAGE: ${{ steps.deploy.outputs.address }}
-        run: npm run read
-
-      - name: Upload artifacts (deploy log + deployments/)
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: deploy-output
-          path: |
-            deploy.log
-            deployments/**
-          if-no-files-found: ignore
-          retention-days: 7
+      - name: Job summary
+        run: |
+          echo "### Deploy completed" >> $GITHUB_STEP_SUMMARY
+          echo "- Network: \`circleLayerTestnet\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Address: \`${{ steps.read_addr.outputs.addr }}\`" >> $GITHUB_STEP_SUMMARY
