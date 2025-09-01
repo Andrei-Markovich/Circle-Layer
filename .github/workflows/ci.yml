@@ -13,8 +13,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # Делаем нужные значения доступными как env,
+    # чтобы в if: не обращаться напрямую к "secrets"
     env:
       SIMPLE_STORAGE: ${{ vars.SIMPLE_STORAGE }}
+      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
 
     steps:
       - name: Checkout
@@ -27,7 +31,7 @@ jobs:
           cache: npm
 
       # Установка без optional-зависимостей (fsevents и т.п.)
-      - name: "Install deps (Linux-safe, no optional)"
+      - name: Install deps (Linux-safe, no optional)
         env:
           NPM_CONFIG_OPTIONAL: "false"
         run: |
@@ -36,15 +40,14 @@ jobs:
           npm prune --omit=optional
           npm ls fsevents || true
 
-      - name: "Ensure analyzer & Compile"
+      - name: Ensure analyzer & Compile
         shell: bash
         run: |
           node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
           || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
           npx hardhat compile
 
-      - name: "Smoke: read SimpleStorage (optional)"
-        if: ${{ env.SIMPLE_STORAGE != '' && secrets.CIRCLE_RPC_URL != '' }}
-        env:
-          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+      # Дешёвый smoke-тест чтения (запускаем, только если есть адрес и RPC)
+      - name: Smoke: read SimpleStorage (optional)
+        if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
