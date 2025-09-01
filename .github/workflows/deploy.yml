@@ -4,14 +4,13 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write     # чтобы коммитить deployments/*
-  actions: write      # чтобы обновить Actions Variable SIMPLE_STORAGE
+  contents: write      # коммит deployments/*
+  actions: write       # обновить Actions Variable SIMPLE_STORAGE
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      # сеть и секреты для hardhat
       NETWORK: circleLayerTestnet
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
       PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
@@ -26,16 +25,16 @@ jobs:
           node-version: 20
           cache: npm
 
-      # ⬇️ ключевой фикс: полностью вырубаем optional deps (fsevents и т.п.)
-      - name: Install deps (Linux-safe, no optional)
-        env:
-          NPM_CONFIG_OPTIONAL: "false"
+      # ⬇️ КЛЮЧ: полностью вырубаем optional deps (fsevents и т.п.)
+      - name: Install deps (Linux-safe, NO optional)
         shell: bash
+        env:
+          NPM_CONFIG_OPTIONAL: "false"     # npm не будет ставить optional
         run: |
           set -e
+          npm config set optional false
           npm ci --omit=optional --no-optional || npm install --omit=optional --no-optional
           npm prune --omit=optional
-          # На всякий случай показываем, что fsevents отсутствует, но не падаем
           npm ls fsevents || true
 
       - name: Compile (ensure analyzer)
@@ -55,7 +54,6 @@ jobs:
           echo "addr=$ADDR" >> $GITHUB_OUTPUT
           {
             echo "### Deploy completed"
-            echo
             echo "- **Network:** \`${{ env.NETWORK }}\`"
             echo "- **Address:** \`$ADDR\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -70,7 +68,6 @@ jobs:
             -f name="SIMPLE_STORAGE" \
             -f value="${{ steps.read.outputs.addr }}"
 
-      # аккуратно подтянем удалённые коммиты, чтобы push прошёл
       - name: Rebase with origin/main
         run: |
           git config user.name  "${{ github.actor }}"
@@ -83,5 +80,4 @@ jobs:
           git commit -m "ci: track deployed SimpleStorage address" || echo "Nothing to commit"
 
       - name: Push
-        run: |
-          git push origin HEAD:main || echo "push skipped"
+        run: git push origin HEAD:main || echo "push skipped"
