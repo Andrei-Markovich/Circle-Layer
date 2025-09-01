@@ -1,11 +1,10 @@
 name: Deploy SimpleStorage
-
 on:
   workflow_dispatch:
 
 permissions:
   contents: write      # чтобы коммитить deployments/*
-  actions: write       # чтобы писать repo variables через GITHUB_TOKEN
+  actions: write       # чтобы менять Actions Variables через GITHUB_TOKEN
 
 jobs:
   deploy:
@@ -52,16 +51,21 @@ jobs:
           echo "Network:  $NETWORK" >> "$GITHUB_STEP_SUMMARY"
           echo "Address:  $ADDR"    >> "$GITHUB_STEP_SUMMARY"
 
-      # <<< фикс — создаем/обновляем repo variable SIMPLE_STORAGE >>>
+      # Обновляем/создаём переменную SIMPLE_STORAGE (best-effort)
       - name: Update Actions variable SIMPLE_STORAGE
         if: steps.addr.outputs.address != ''
         env:
-          GH_TOKEN: ${{ github.token }}   # работает благодаря permissions: actions: write
+          GH_TOKEN: ${{ github.token }}    # работает благодаря permissions: actions: write
         run: |
-          gh variable set SIMPLE_STORAGE --repo "$GITHUB_REPOSITORY" --body "${{ steps.addr.outputs.address }}"
-      # >>> конец фикса
+          set +e
+          gh variable set SIMPLE_STORAGE --body "${{ steps.addr.outputs.address }}"
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "::warning::Failed to update Actions variable SIMPLE_STORAGE (non-fatal)."
+          fi
+          exit 0
 
-      # Сохраняем файл deployments/* в репозиторий
+      # Коммитим адрес в репозиторий
       - name: Rebase with origin/main
         env:
           GIT_AUTHOR_NAME:  github-actions[bot]
