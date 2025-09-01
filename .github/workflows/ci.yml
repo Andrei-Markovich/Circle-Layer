@@ -39,9 +39,4 @@ jobs:
           || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
           npx hardhat compile
 
-      # Опциональный смоук-тест чтения, только если есть адрес и RPC
-      - name: Smoke: read SimpleStorage (optional)
-        if: env.SIMPLE_STORAGE != '' && (secrets.CIRCLE_RPC_URL != '')
-        env:
-          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-        run: npx hardhat run --network circleLayerTestnet scripts/read.js
+      
