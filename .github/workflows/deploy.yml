@@ -1,19 +1,17 @@
 name: Deploy SimpleStorage
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 permissions:
-  contents: write      # коммит deployments/*
-  actions: write       # обновить Actions Variable SIMPLE_STORAGE
+  contents: write      # чтобы коммитить deployments/*
+  actions: write       # чтобы писать repo variables через GITHUB_TOKEN
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
       NETWORK: circleLayerTestnet
-      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
 
     steps:
       - name: Checkout
@@ -25,12 +23,11 @@ jobs:
           node-version: 20
           cache: npm
 
-      # ⬇️ Без deprecated опций/переменных. Только --omit=optional.
+      # Установка зависимостей без optional (fsevents и т.п.)
       - name: Install deps (Linux-safe, omit optional)
-        shell: bash
         run: |
           set -e
-          npm ci --omit=optional || npm install --omit=optional
+          npm ci --omit=optional
           npm prune --omit=optional
           npm ls fsevents || true
 
@@ -42,39 +39,38 @@ jobs:
           npx hardhat compile
 
       - name: Deploy
-        run: npx hardhat run scripts/deploySimpleStorage.js --network ${{ env.NETWORK }}
+        env:
+          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+          PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
+        run: npx hardhat run scripts/deploySimpleStorage.js --network $NETWORK
 
       - name: Read deployed address
-        id: read
+        id: addr
         run: |
-          ADDR=$(jq -r '.address' deployments/${{ env.NETWORK }}/SimpleStorage.json)
-          echo "addr=$ADDR" >> $GITHUB_OUTPUT
-          {
-            echo "### Deploy completed"
-            echo "- **Network:** \`${{ env.NETWORK }}\`"
-            echo "- **Address:** \`$ADDR\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          ADDR=$(node -p "require('./deployments/${{ env.NETWORK }}/SimpleStorage.json').address || ''")
+          echo "address=$ADDR" >> "$GITHUB_OUTPUT"
+          echo "Network:  $NETWORK" >> "$GITHUB_STEP_SUMMARY"
+          echo "Address:  $ADDR"    >> "$GITHUB_STEP_SUMMARY"
 
+      # <<< фикс — создаем/обновляем repo variable SIMPLE_STORAGE >>>
       - name: Update Actions variable SIMPLE_STORAGE
-        if: ${{ steps.read.outputs.addr != '' }}
+        if: steps.addr.outputs.address != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}   # работает благодаря permissions: actions: write
         run: |
-          gh api -X PUT \
-            "repos/${{ github.repository }}/actions/variables/SIMPLE_STORAGE" \
-            -f name="SIMPLE_STORAGE" \
-            -f value="${{ steps.read.outputs.addr }}"
+          gh variable set SIMPLE_STORAGE --repo "$GITHUB_REPOSITORY" --body "${{ steps.addr.outputs.address }}"
+      # >>> конец фикса
 
+      # Сохраняем файл deployments/* в репозиторий
       - name: Rebase with origin/main
+        env:
+          GIT_AUTHOR_NAME:  github-actions[bot]
+          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME:  github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
         run: |
-          git config user.name  "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
-          git pull --rebase origin main || true
-
-      - name: Commit deployments file
-        run: |
+          git fetch origin main
+          git rebase origin/main || git rebase --abort
           git add deployments/${{ env.NETWORK }}/SimpleStorage.json
-          git commit -m "ci: track deployed SimpleStorage address" || echo "Nothing to commit"
-
-      - name: Push
-        run: git push origin HEAD:main || echo "push skipped"
+          git commit -m "chore(ci): persist SimpleStorage address ${{ steps.addr.outputs.address }}" || echo "nothing to commit"
+          git push origin HEAD:main
