@@ -14,8 +14,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    # Делаем нужные значения доступными как env,
-    # чтобы в if: не обращаться напрямую к "secrets"
     env:
       SIMPLE_STORAGE: ${{ vars.SIMPLE_STORAGE }}
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
@@ -47,7 +45,7 @@ jobs:
           || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
           npx hardhat compile
 
-      # Дешёвый smoke-тест чтения (запускаем, только если есть адрес и RPC)
-      - name: Smoke: read SimpleStorage (optional)
+      # Дешёвый smoke-тест чтения; запускаем только если есть адрес и RPC
+      - name: "Smoke: read SimpleStorage (optional)"
         if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
