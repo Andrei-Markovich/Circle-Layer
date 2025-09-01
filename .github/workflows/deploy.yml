@@ -25,15 +25,12 @@ jobs:
           node-version: 20
           cache: npm
 
-      # ⬇️ КЛЮЧ: полностью вырубаем optional deps (fsevents и т.п.)
-      - name: Install deps (Linux-safe, NO optional)
+      # ⬇️ Без deprecated опций/переменных. Только --omit=optional.
+      - name: Install deps (Linux-safe, omit optional)
         shell: bash
-        env:
-          NPM_CONFIG_OPTIONAL: "false"     # npm не будет ставить optional
         run: |
           set -e
-          npm config set optional false
-          npm ci --omit=optional --no-optional || npm install --omit=optional --no-optional
+          npm ci --omit=optional || npm install --omit=optional
           npm prune --omit=optional
           npm ls fsevents || true
 
