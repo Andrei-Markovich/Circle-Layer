@@ -2,17 +2,16 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
-  workflow_dispatch: {}
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build
     runs-on: ubuntu-latest
     env:
       SIMPLE_STORAGE: ${{ vars.SIMPLE_STORAGE }}
@@ -27,24 +26,25 @@ jobs:
           node-version: 20
           cache: npm
 
-      # --- ключевой фикс ---
-      - name: Install deps (Linux-safe, no optional)
+      # Установка без optional-зависимостей (fsevents и т.п.)
+      - name: "Install deps (Linux-safe, no optional)"
         env:
-          NPM_CONFIG_OPTIONAL: "false"   # принудительно выключаем optional
+          NPM_CONFIG_OPTIONAL: "false"
         run: |
+          set -e
           npm ci --omit=optional || npm install --omit=optional
           npm prune --omit=optional
           npm ls fsevents || true
 
-      - name: Ensure analyzer & Compile
+      - name: "Ensure analyzer & Compile"
         shell: bash
         run: |
           node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
           || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
           npx hardhat compile
 
-      - name: Smoke: read SimpleStorage (optional)
-        if: env.SIMPLE_STORAGE != '' && (secrets.CIRCLE_RPC_URL != '')
+      - name: "Smoke: read SimpleStorage (optional)"
+        if: env.SIMPLE_STORAGE != '' && secrets.CIRCLE_RPC_URL != ''
         env:
           CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
