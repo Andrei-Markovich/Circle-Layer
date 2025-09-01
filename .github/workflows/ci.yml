@@ -44,7 +44,7 @@ jobs:
           npx hardhat compile
 
       - name: "Smoke: read SimpleStorage (optional)"
-        if: env.SIMPLE_STORAGE != '' && secrets.CIRCLE_RPC_URL != ''
+        if: ${{ env.SIMPLE_STORAGE != '' && secrets.CIRCLE_RPC_URL != '' }}
         env:
           CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
