@@ -1,25 +1,24 @@
 name: Deploy SimpleStorage
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
-  contents: write
-  actions: write
-
-concurrency:
-  group: deploy-simplestorage
-  cancel-in-progress: false
+  contents: write     # чтобы коммитить deployments/*
+  actions: write      # чтобы обновить Actions Variable SIMPLE_STORAGE
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      # сеть и секреты для hardhat
+      NETWORK: circleLayerTestnet
+      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # нужно для rebase и пуша
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -27,8 +26,17 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install deps (skip optional)
-        run: npm ci --omit=optional
+      # ⬇️ ключевой фикс: полностью вырубаем optional deps (fsevents и т.п.)
+      - name: Install deps (Linux-safe, no optional)
+        env:
+          NPM_CONFIG_OPTIONAL: "false"
+        shell: bash
+        run: |
+          set -e
+          npm ci --omit=optional --no-optional || npm install --omit=optional --no-optional
+          npm prune --omit=optional
+          # На всякий случай показываем, что fsevents отсутствует, но не падаем
+          npm ls fsevents || true
 
       - name: Compile (ensure analyzer)
         shell: bash
@@ -38,45 +46,42 @@ jobs:
           npx hardhat compile
 
       - name: Deploy
-        env:
-          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-          PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
-        run: npx hardhat run --network circleLayerTestnet scripts/deploySimpleStorage.js
+        run: npx hardhat run scripts/deploySimpleStorage.js --network ${{ env.NETWORK }}
 
       - name: Read deployed address
-        id: read_addr
+        id: read
         run: |
-          ADDR=$(jq -r .address deployments/circleLayerTestnet/SimpleStorage.json)
-          echo "ADDR=$ADDR" | tee -a $GITHUB_ENV
+          ADDR=$(jq -r '.address' deployments/${{ env.NETWORK }}/SimpleStorage.json)
           echo "addr=$ADDR" >> $GITHUB_OUTPUT
+          {
+            echo "### Deploy completed"
+            echo
+            echo "- **Network:** \`${{ env.NETWORK }}\`"
+            echo "- **Address:** \`$ADDR\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Update Actions variable SIMPLE_STORAGE
-        if: steps.read_addr.outputs.addr != ''
+        if: ${{ steps.read.outputs.addr != '' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -sSf -X PATCH \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/variables/SIMPLE_STORAGE" \
-            -d "{\"name\":\"SIMPLE_STORAGE\",\"value\":\"${ADDR}\"}"
+          gh api -X PUT \
+            "repos/${{ github.repository }}/actions/variables/SIMPLE_STORAGE" \
+            -f name="SIMPLE_STORAGE" \
+            -f value="${{ steps.read.outputs.addr }}"
 
+      # аккуратно подтянем удалённые коммиты, чтобы push прошёл
       - name: Rebase with origin/main
         run: |
-          git config user.email "ci-bot@users.noreply.github.com"
-          git config user.name  "ci-bot"
-          git fetch origin main
-          git pull --rebase origin main
+          git config user.name  "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git pull --rebase origin main || true
 
-      - name: Auto-commit deployments file
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          file_pattern: deployments/circleLayerTestnet/SimpleStorage.json
-          commit_message: "ci: track deployed SimpleStorage address"
-          push_options: '--force-with-lease'
-
-      - name: Job summary
+      - name: Commit deployments file
         run: |
-          echo "### Deploy completed" >> $GITHUB_STEP_SUMMARY
-          echo "- Network: \`circleLayerTestnet\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Address: \`${{ steps.read_addr.outputs.addr }}\`" >> $GITHUB_STEP_SUMMARY
+          git add deployments/${{ env.NETWORK }}/SimpleStorage.json
+          git commit -m "ci: track deployed SimpleStorage address" || echo "Nothing to commit"
+
+      - name: Push
+        run: |
+          git push origin HEAD:main || echo "push skipped"
