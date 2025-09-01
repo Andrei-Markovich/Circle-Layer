@@ -1,10 +1,11 @@
 name: Deploy SimpleStorage
+
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
-  contents: write      # чтобы коммитить deployments/*
-  actions: write       # чтобы менять Actions Variables через GITHUB_TOKEN
+  contents: write   # чтобы коммитить deployments/*
+  actions: read
 
 jobs:
   deploy:
@@ -22,7 +23,6 @@ jobs:
           node-version: 20
           cache: npm
 
-      # Установка зависимостей без optional (fsevents и т.п.)
       - name: Install deps (Linux-safe, omit optional)
         run: |
           set -e
@@ -41,40 +41,61 @@ jobs:
         env:
           CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
           PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
-        run: npx hardhat run scripts/deploySimpleStorage.js --network $NETWORK
+        run: npx hardhat run --network $NETWORK scripts/deploySimpleStorage.js
 
       - name: Read deployed address
-        id: addr
         run: |
-          ADDR=$(node -p "require('./deployments/${{ env.NETWORK }}/SimpleStorage.json').address || ''")
-          echo "address=$ADDR" >> "$GITHUB_OUTPUT"
-          echo "Network:  $NETWORK" >> "$GITHUB_STEP_SUMMARY"
-          echo "Address:  $ADDR"    >> "$GITHUB_STEP_SUMMARY"
+          set -e
+          FILE="deployments/${NETWORK}/SimpleStorage.json"
+          ADDR=$(node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(j.address||'');" "$FILE")
+          echo "ADDRESS=$ADDR" >> $GITHUB_ENV
+          echo "Network:  $NETWORK" >> $GITHUB_STEP_SUMMARY
+          echo "Address:  $ADDR" >> $GITHUB_STEP_SUMMARY
+          test -n "$ADDR"
 
-      # Обновляем/создаём переменную SIMPLE_STORAGE (best-effort)
+      - name: Export ABI for artifacts
+        run: node scripts/exportAbi.js
+
+      - name: Upload ABI & deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: abi-and-deployment-${{ github.run_id }}
+          path: |
+            abi/SimpleStorage.json
+            deployments/**/SimpleStorage.json
+            artifacts/contracts/SimpleStorage.sol/SimpleStorage.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Update Actions variable SIMPLE_STORAGE
-        if: steps.addr.outputs.address != ''
+        if: ${{ env.ADDRESS != '' && secrets.GH_PAT != '' }}
         env:
-          GH_TOKEN: ${{ github.token }}    # работает благодаря permissions: actions: write
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          set +e
-          gh variable set SIMPLE_STORAGE --body "${{ steps.addr.outputs.address }}"
-          RC=$?
-          if [ $RC -ne 0 ]; then
-            echo "::warning::Failed to update Actions variable SIMPLE_STORAGE (non-fatal)."
-          fi
-          exit 0
+          set -e
+          echo "Updating Actions variable SIMPLE_STORAGE to $ADDRESS"
+          gh api --method PATCH \
+            "repos/${{ github.repository }}/actions/variables/SIMPLE_STORAGE" \
+            -f name="SIMPLE_STORAGE" -f value="$ADDRESS" \
+          || gh api --method POST \
+            "repos/${{ github.repository }}/actions/variables" \
+            -f name="SIMPLE_STORAGE" -f value="$ADDRESS"
 
-      # Коммитим адрес в репозиторий
       - name: Rebase with origin/main
-        env:
-          GIT_AUTHOR_NAME:  github-actions[bot]
-          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
-          GIT_COMMITTER_NAME:  github-actions[bot]
-          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
         run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git rebase origin/main || git rebase --abort
-          git add deployments/${{ env.NETWORK }}/SimpleStorage.json
-          git commit -m "chore(ci): persist SimpleStorage address ${{ steps.addr.outputs.address }}" || echo "nothing to commit"
-          git push origin HEAD:main
+
+      - name: Commit deployments file
+        run: |
+          git add deployments
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(deploy): persist SimpleStorage at $ADDRESS"
+
+      - name: Push
+        run: git push origin HEAD:main
