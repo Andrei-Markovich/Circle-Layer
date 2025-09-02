@@ -56,30 +56,55 @@ jobs:
       - name: Export ABI for artifacts
         run: node scripts/exportAbi.js
 
-      - name: Upload ABI & deployment
+      - name: List outputs
+        run: |
+          echo "## Files" >> $GITHUB_STEP_SUMMARY
+          ls -la abi || true >> $GITHUB_STEP_SUMMARY
+          ls -la "deployments/${NETWORK}" || true >> $GITHUB_STEP_SUMMARY
+          ls -la artifacts/contracts/SimpleStorage.sol || true >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload ABI
         uses: actions/upload-artifact@v4
         with:
-          name: abi-and-deployment-${{ github.run_id }}
-          path: |
-            abi/SimpleStorage.json
-            deployments/**/SimpleStorage.json
-            artifacts/contracts/SimpleStorage.sol/SimpleStorage.json
+          name: abi-${{ github.run_id }}
+          path: abi/SimpleStorage.json
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload deployment JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ github.run_id }}
+          path: deployments/**/SimpleStorage.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload hardhat artifact (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardhat-artifact-${{ github.run_id }}
+          path: artifacts/contracts/SimpleStorage.sol/SimpleStorage.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Обновляем переменную, но НЕ роняем джоб при 404/permission
       - name: Update Actions variable SIMPLE_STORAGE
-        if: ${{ env.ADDRESS != '' && secrets.GH_PAT != '' }}
+        if: ${{ env.ADDRESS != '' }}
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           set -e
-          echo "Updating Actions variable SIMPLE_STORAGE to $ADDRESS"
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "GH_PAT not set, skipping variable update"
+            exit 0
+          fi
           gh api --method PATCH \
             "repos/${{ github.repository }}/actions/variables/SIMPLE_STORAGE" \
             -f name="SIMPLE_STORAGE" -f value="$ADDRESS" \
           || gh api --method POST \
             "repos/${{ github.repository }}/actions/variables" \
-            -f name="SIMPLE_STORAGE" -f value="$ADDRESS"
+            -f name="SIMPLE_STORAGE" -f value="$ADDRESS" \
+          || echo "Skip variable update (permissions or endpoint not available)"
 
       - name: Rebase with origin/main
         run: |
