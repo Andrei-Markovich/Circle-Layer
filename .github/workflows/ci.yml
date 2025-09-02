@@ -43,18 +43,40 @@ jobs:
       - name: Export ABI for artifacts
         run: node scripts/exportAbi.js
 
-      - name: Upload ABI & deployment
+      - name: List outputs
+        run: |
+          echo "## Files" >> $GITHUB_STEP_SUMMARY
+          ls -la abi || true >> $GITHUB_STEP_SUMMARY
+          ls -la deployments || true >> $GITHUB_STEP_SUMMARY
+          ls -la artifacts/contracts/SimpleStorage.sol || true >> $GITHUB_STEP_SUMMARY
+
+      # Загружаем ABI — всегда должен быть
+      - name: Upload ABI
         uses: actions/upload-artifact@v4
         with:
-          name: abi-and-deployment-${{ github.sha }}
-          path: |
-            abi/SimpleStorage.json
-            deployments/**/SimpleStorage.json
-            artifacts/contracts/SimpleStorage.sol/SimpleStorage.json
+          name: abi-${{ github.sha }}
+          path: abi/SimpleStorage.json
           if-no-files-found: error
           retention-days: 7
 
-      # Дешёвый smoke-тест: чтение, если задан адрес и RPC
+      # Остальное — опционально в CI (деплой не выполняется)
+      - name: Upload deployment JSON (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ github.sha }}
+          path: deployments/**/SimpleStorage.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload hardhat artifact (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardhat-artifact-${{ github.sha }}
+          path: artifacts/contracts/SimpleStorage.sol/SimpleStorage.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Дешёвый smoke-тест чтения (если есть адрес и RPC)
       - name: Smoke: read SimpleStorage (optional)
         if: ${{ env.SIMPLE_STORAGE != '' && secrets.CIRCLE_RPC_URL != '' }}
         env:
