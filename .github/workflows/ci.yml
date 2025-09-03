@@ -45,12 +45,18 @@ jobs:
           npm prune --omit=optional
           npm ls fsevents || true
 
-      - name: Ensure analyzer & Compile
+      # <<< изменённый шаг: ставим анализатор под Linux без условий и компилим с трейсом
+      - name: Ensure analyzer (Linux) & Compile
         shell: bash
         run: |
-          node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
-          || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
-          npx hardhat compile
+          set -e
+          npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+          echo "----- hardhat.config.js -----"
+          if [ -f hardhat.config.js ]; then cat hardhat.config.js; fi
+          echo "-----------------------------"
+          npx hardhat clean
+          npx hardhat compile --show-stack-traces
+      # >>>
 
       - name: Export ABI for artifacts
         run: node scripts/exportAbi.js
