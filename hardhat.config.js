@@ -1,18 +1,19 @@
-require('dotenv').config();
-require('@nomicfoundation/hardhat-toolbox');
+import { HardhatUserConfig } from "hardhat/config";
+import "@nomicfoundation/hardhat-toolbox";
+import * as dotenv from "dotenv";
+dotenv.config();
 
-const { PRIVATE_KEY } = process.env;
+const { CIRCLE_RPC_URL, PRIVATE_KEY, CHAIN_ID } = process.env as Record<string, string>;
 
-module.exports = {
-  solidity: {
-    version: "0.8.28",
-    settings: { optimizer: { enabled: true, runs: 200 } }
-  },
+const config: HardhatUserConfig = {
+  solidity: "0.8.24",
   networks: {
     circleLayerTestnet: {
-      url: "https://testnet-rpc.circlelayer.com",
-      chainId: 28525,
-      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : []
-    }
-  }
+      url: CIRCLE_RPC_URL || "",
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+      chainId: CHAIN_ID ? Number(CHAIN_ID) : undefined,
+    },
+  },
 };
+
+export default config;
