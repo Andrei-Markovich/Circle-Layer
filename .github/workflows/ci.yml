@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   push:
@@ -13,66 +13,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-<<<<<<< HEAD
-=======
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install deps (skip optional)
-        run: |
-          npm ci --omit=optional --no-optional || npm install --omit=optional --no-optional
-
-      # ÐÐ° Linux Ñ€Ð°Ð½Ð½ÐµÑ€Ðµ Hardhat Ð¸Ð½Ð¾Ð³Ð´Ð° Ð½Ðµ Ð¿Ð¾Ð´Ñ‚ÑÐ³Ð¸Ð²Ð°ÐµÑ‚ Ð±Ð¸Ð½Ð°Ñ€Ð½Ð¸Ðº Ð°Ð½Ð°Ð»Ð¸Ð·Ð°Ñ‚Ð¾Ñ€Ð° â€”
-      # ÑÑ‚Ð°Ð²Ð¸Ð¼ ÐµÐ³Ð¾ ÑÐ²Ð½Ð¾. ÐÐ° Windows/Ð¼acOS ÑˆÐ°Ð³ Ð¿Ñ€Ð¾ÑÑ‚Ð¾ Ð¿Ñ€Ð¾Ð¿ÑƒÑÐºÐ°ÐµÑ‚ÑÑ.
-      - name: Add Solidity analyzer (Linux)
-        if: runner.os == 'Linux'
-        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu || true
-
-      - name: Compile
-        run: npx hardhat compile
-
-      - name: Test
-        run: npx hardhat test
-
-  smoke-read:
-    name: Smoke Read (optional)
-    needs: build
-    runs-on: ubuntu-latest
-
-    # ÐŸÑ€Ð¾ÐºÐ¸Ð´Ñ‹Ð²Ð°ÐµÐ¼ ÑÐµÐºÑ€ÐµÑ‚Ñ‹ Ð² env. Ð¢Ð°Ðº Ð¼Ð¾Ð¶Ð½Ð¾ Ð´ÐµÐ»Ð°Ñ‚ÑŒ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐºÐ¸ Ð¿Ð¾ env Ð² ÑˆÐ°Ð³Ð°Ñ…,
-    # Ð½Ðµ Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÑ secrets.* Ð² ÑƒÑÐ»Ð¾Ð²Ð¸ÑÑ… job'Ð° (Ñ‡Ñ‚Ð¾Ð±Ñ‹ Ð½Ðµ Ð»Ð¾Ð²Ð¸Ñ‚ÑŒ Ð¾ÑˆÐ¸Ð±ÐºÐ¸ Ð¿Ð°Ñ€ÑÐµÑ€Ð°).
-=======
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  build:
-    runs-on: ubuntu-24.04
-
->>>>>>> bf1ec90 (ci: fix yaml, quote step name; keep analyzer + omit optional)
->>>>>>> 31a04e0 (ci: skip optional deps on Linux with --no-optional)
     env:
       SIMPLE_STORAGE: ${{ vars.SIMPLE_STORAGE }}
       CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
-<<<<<<< HEAD
-=======
-      SIMPLE_STORAGE: ${{ secrets.SIMPLE_STORAGE }}
-      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
-
-      CI: "true"
-      NPM_CONFIG_AUDIT: "false"
-      NPM_CONFIG_FUND:  "false"
-      NPM_CONFIG_OPTIONAL: "false"   # Ð¾Ñ‚ÐºÐ»ÑŽÑ‡Ð°ÐµÐ¼ optional deps (fsevents Ð¸ Ñ‚.Ð¿.)
->>>>>>> 31a04e0 (ci: skip optional deps on Linux with --no-optional)
 
     steps:
       - name: Checkout
@@ -84,37 +27,13 @@ jobs:
           node-version: 20
           cache: npm
 
-<<<<<<< HEAD
       - name: Install deps (Linux-safe, omit optional)
-=======
-<<<<<<< HEAD
-      - name: Install deps (skip optional)
-        run: |
-          npm ci --omit=optional --no-optional || npm install --omit=optional --no-optional
-
-      - name: Add Solidity analyzer (Linux)
-        if: runner.os == 'Linux'
-        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu || true
-
-      # Ð’Ñ‹Ð¿Ð¾Ð»Ð½ÑÐµÐ¼ Ñ‡Ñ‚ÐµÐ½Ð¸Ðµ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ ÐµÑÐ»Ð¸ Ð’Ð¡Ð• Ð¿ÐµÑ€ÐµÐ¼ÐµÐ½Ð½Ñ‹Ðµ Ð·Ð°Ð´Ð°Ð½Ñ‹ Ð¸ ÑÑ‚Ð¾ Ð½Ðµ PR Ð¸Ð· Ñ„Ð¾Ñ€ÐºÐ°
-      - name: Read value from chain
-        if: ${{ env.CIRCLE_RPC_URL && env.PRIVATE_KEY && env.SIMPLE_STORAGE && github.event_name != 'pull_request' }}
-        run: npm run read
-=======
-      - name: Show versions
-        run: |
-          node -v
-          npm -v
-
-      - name: Install deps (skip optional)
->>>>>>> 31a04e0 (ci: skip optional deps on Linux with --no-optional)
         shell: bash
         env:
-          NPM_CONFIG_OPTIONAL: "false"   # на всякий случай
+          NPM_CONFIG_OPTIONAL: "false"
         run: |
           set -e
-<<<<<<< HEAD
-          # Пытаемся установить. Если упало — проверяем лог на EBADPLATFORM (fsevents на Linux).
+          # Устанавливаем зависимости. Если падение из-за EBADPLATFORM (fsevents на Linux) — продолжаем.
           npm ci --omit=optional || {
             echo "::warning::npm ci failed, checking for EBADPLATFORM in npm debug log…"
             if grep -q 'EBADPLATFORM' /home/runner/.npm/_logs/*-debug-0.log; then
@@ -125,16 +44,6 @@ jobs:
           }
           npm prune --omit=optional
           npm ls fsevents || true
-=======
-          echo "Trying: npm ci --omit=optional --no-optional"
-          if npm ci --omit=optional --no-optional; then
-            echo "npm ci OK"
-          else
-            echo "npm ci failed; falling back to 'npm i --omit=optional'"
-            rm -rf node_modules
-            npm i --omit=optional
-          fi
->>>>>>> 31a04e0 (ci: skip optional deps on Linux with --no-optional)
 
       - name: Ensure analyzer & Compile
         shell: bash
@@ -146,30 +55,14 @@ jobs:
       - name: Export ABI for artifacts
         run: node scripts/exportAbi.js
 
-<<<<<<< HEAD
       - name: List outputs
         run: |
           echo "## Files" >> $GITHUB_STEP_SUMMARY
           ls -la abi || true >> $GITHUB_STEP_SUMMARY
           ls -la deployments || true >> $GITHUB_STEP_SUMMARY
           ls -la artifacts/contracts/SimpleStorage.sol || true >> $GITHUB_STEP_SUMMARY
-=======
-      # Ð›Ñ‘Ð³ÐºÐ¸Ð¹ smoke-Ñ‚ÐµÑÑ‚ Ñ‡Ñ‚ÐµÐ½Ð¸Ñ â€” Ñ‚Ð¾Ð»ÑŒÐºÐ¾ ÐµÑÐ»Ð¸ Ð·Ð°Ð´Ð°Ð½ Ð°Ð´Ñ€ÐµÑ ÐºÐ¾Ð½Ñ‚Ñ€Ð°ÐºÑ‚Ð°
-      - name: Smoke - read SimpleStorage
-        if: ${{ env.SIMPLE_STORAGE != '' }}
-        run: npx hardhat run --network circleLayerTestnet scripts/read.js
 
-      - name: Export ABI (optional)
-        shell: bash
-        run: |
-          if [ -f scripts/exportAbi.js ]; then
-            node scripts/exportAbi.js
-          else
-            echo "scripts/exportAbi.js not found â€” skipping"
-          fi
->>>>>>> 31a04e0 (ci: skip optional deps on Linux with --no-optional)
-
-      # Загружаем ABI — всегда должен быть
+      # Загружаем ABI — должен быть всегда
       - name: Upload ABI
         uses: actions/upload-artifact@v4
         with:
@@ -178,8 +71,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-<<<<<<< HEAD
-      # Остальное — опционально
+      # Остальные артефакты — опционально
       - name: Upload deployment JSON (optional)
         uses: actions/upload-artifact@v4
         with:
@@ -196,17 +88,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      # Дешёвый smoke-тест чтения (если есть адрес и RPC)
-      - name: "Smoke: read SimpleStorage (optional)"
+      # Дешёвый smoke-тест чтения из сети — только если заданы адрес и RPC
+      - name: Smoke: read SimpleStorage (optional)
         if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
-=======
-      # ÐŸÐ¾Ð»Ð½Ñ‹Ð¹ E2E (Ð¼ÐµÐ½ÑÐµÑ‚ ÑÐ¾ÑÑ‚Ð¾ÑÐ½Ð¸Ðµ) â€” Ñ‚Ð¾Ð»ÑŒÐºÐ¾ Ð²Ñ€ÑƒÑ‡Ð½ÑƒÑŽ
-      - name: E2E set+read (manual only)
-        if: ${{ github.event_name == 'workflow_dispatch' && env.PRIVATE_KEY != '' && env.SIMPLE_STORAGE != '' }}
-        run: |
-          VALUE=4242 npx hardhat run --network circleLayerTestnet scripts/set.js
-          npx hardhat run --network circleLayerTestnet scripts/read.js
->>>>>>> bf1ec90 (ci: fix yaml, quote step name; keep analyzer + omit optional)
-
->>>>>>> 31a04e0 (ci: skip optional deps on Linux with --no-optional)
