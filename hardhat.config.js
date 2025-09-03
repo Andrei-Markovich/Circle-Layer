@@ -1,11 +1,10 @@
-import { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-toolbox";
-import * as dotenv from "dotenv";
-dotenv.config();
+require("@nomicfoundation/hardhat-toolbox");
+require("dotenv").config();
 
-const { CIRCLE_RPC_URL, PRIVATE_KEY, CHAIN_ID } = process.env as Record<string, string>;
+const { CIRCLE_RPC_URL, PRIVATE_KEY, CHAIN_ID } = process.env;
 
-const config: HardhatUserConfig = {
+/** @type import('hardhat/config').HardhatUserConfig */
+module.exports = {
   solidity: "0.8.24",
   networks: {
     circleLayerTestnet: {
@@ -15,5 +14,3 @@ const config: HardhatUserConfig = {
     },
   },
 };
-
-export default config;
