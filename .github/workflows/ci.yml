@@ -40,6 +40,7 @@ jobs:
           NPM_CONFIG_OPTIONAL: "false"
         run: |
           set -e
+          # Ставим зависимости. Если падение из-за EBADPLATFORM (fsevents на Linux) — пропускаем и идём дальше.
           npm ci --omit=optional --no-optional || {
             echo "::warning::npm ci failed, checking for EBADPLATFORM in npm logs…"
             if grep -Eiq 'EBADPLATFORM|Unsupported platform.*fsevents' /home/runner/.npm/_logs/*-debug-*.log; then
@@ -51,25 +52,30 @@ jobs:
           npm prune --omit=optional
           npm ls fsevents || true
 
-      - name: Sanitize Hardhat config (disable TypeChain if present)
+      - name: Verify Hardhat config has NO TypeChain
         shell: bash
         run: |
           set -e
-          for f in hardhat.config.js hardhat.config.ts; do
-            [ -f "$f" ] || continue
-            cp "$f" "$f.bak"
-            # Убираем require('@typechain/hardhat') и блок typechain: { … }
-            sed -i "/@typechain\/hardhat/d" "$f" || true
-            perl -0777 -pe "s/typechain\s*:\s*\{[^}]*\}\s*,?\s*//gs" -i "$f" 2>/dev/null || true
-            echo "Sanitized $f:"
-            diff -u "$f.bak" "$f" || true
-          done
+          CFG=""
+          [ -f hardhat.config.js ] && CFG="hardhat.config.js"
+          [ -z "$CFG" ] && [ -f hardhat.config.ts ] && CFG="hardhat.config.ts"
+          if [ -z "$CFG" ]; then
+            echo "::warning::No hardhat.config.js/ts found — skipping TypeChain check."
+            exit 0
+          fi
+          if grep -Eq "@typechain/hardhat|typechain\s*:" "$CFG"; then
+            echo "::error::Remove '@typechain/hardhat' import/require and the 'typechain: { … }' block from $CFG, then re-run CI."
+            exit 1
+          fi
+          echo "OK: TypeChain is not referenced in $CFG"
 
-      - name: Ensure Hardhat analyzer (Linux) & Compile (verbose)
+      - name: Ensure Hardhat analyzer (Linux)
+        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+
+      - name: Compile (verbose)
         shell: bash
         run: |
           set -e
-          npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
           echo "----- hardhat.config preview -----"
           [ -f hardhat.config.js ] && sed -n '1,200p' hardhat.config.js || true
           [ -f hardhat.config.ts ] && sed -n '1,200p' hardhat.config.ts || true
