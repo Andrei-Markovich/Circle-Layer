@@ -40,7 +40,6 @@ jobs:
           NPM_CONFIG_OPTIONAL: "false"
         run: |
           set -e
-          # Устанавливаем зависимости. Если падение из-за EBADPLATFORM (fsevents на Linux) — игнорируем и продолжаем.
           npm ci --omit=optional --no-optional || {
             echo "::warning::npm ci failed, checking for EBADPLATFORM in npm logs…"
             if grep -Eiq 'EBADPLATFORM|Unsupported platform.*fsevents' /home/runner/.npm/_logs/*-debug-*.log; then
@@ -52,34 +51,25 @@ jobs:
           npm prune --omit=optional
           npm ls fsevents || true
 
-      - name: Ensure Hardhat toolchain (Linux analyzer + TypeChain if needed)
+      - name: Sanitize Hardhat config (disable TypeChain if present)
         shell: bash
         run: |
           set -e
-          # Всегда ставим Linux-анализатор для hardhat-toolbox
+          for f in hardhat.config.js hardhat.config.ts; do
+            [ -f "$f" ] || continue
+            cp "$f" "$f.bak"
+            # Убираем require('@typechain/hardhat') и блок typechain: { … }
+            sed -i "/@typechain\/hardhat/d" "$f" || true
+            perl -0777 -pe "s/typechain\s*:\s*\{[^}]*\}\s*,?\s*//gs" -i "$f" 2>/dev/null || true
+            echo "Sanitized $f:"
+            diff -u "$f.bak" "$f" || true
+          done
+
+      - name: Ensure Hardhat analyzer (Linux) & Compile (verbose)
+        shell: bash
+        run: |
+          set -e
           npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
-          # Если в конфиге подключён TypeChain — доставим плагины, чтобы compile не падал
-          if grep -q "@typechain/hardhat" hardhat.config.* 2>/dev/null; then
-            echo "TypeChain detected in hardhat.config — installing devDeps…"
-            npm i -D @typechain/hardhat typechain @typechain/ethers-v6
-            if [ -f tsconfig.json ] || [ -f hardhat.config.ts ]; then
-              npm i -D typescript ts-node
-            fi
-          fi
-
-      - name: Print project tree
-        run: |
-          echo "### contracts/"
-          ls -la contracts || true
-          echo "### hardhat.config.*"
-          ls -la hardhat.config.* || true
-          echo "### package.json"
-          cat package.json
-
-      - name: Compile (verbose)
-        shell: bash
-        run: |
-          set -e
           echo "----- hardhat.config preview -----"
           [ -f hardhat.config.js ] && sed -n '1,200p' hardhat.config.js || true
           [ -f hardhat.config.ts ] && sed -n '1,200p' hardhat.config.ts || true
@@ -97,7 +87,6 @@ jobs:
           ls -la deployments || true >> $GITHUB_STEP_SUMMARY
           ls -la artifacts/contracts/SimpleStorage.sol || true >> $GITHUB_STEP_SUMMARY
 
-      # Загружаем ABI — должен быть всегда
       - name: Upload ABI
         uses: actions/upload-artifact@v4
         with:
@@ -106,7 +95,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Остальные артефакты — опционально
       - name: Upload deployment JSON (optional)
         uses: actions/upload-artifact@v4
         with:
@@ -123,7 +111,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      # Дешёвый smoke-тест чтения из сети — только если заданы адрес и RPC
       - name: "Smoke: read SimpleStorage (optional)"
         if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
