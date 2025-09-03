@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SIMPLE_STORAGE: ${{ vars.SIMPLE_STORAGE }}
+      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}   # поднимаем секрет на уровень job
 
     steps:
       - name: Checkout
@@ -50,7 +51,7 @@ jobs:
           ls -la deployments || true >> $GITHUB_STEP_SUMMARY
           ls -la artifacts/contracts/SimpleStorage.sol || true >> $GITHUB_STEP_SUMMARY
 
-      # Загружаем ABI — всегда должен быть
+      # Загружаем ABI – всегда должен быть
       - name: Upload ABI
         uses: actions/upload-artifact@v4
         with:
@@ -59,7 +60,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Остальное — опционально в CI (деплой не выполняется)
+      # Остальное – опционально в CI (деплой не выполняется)
       - name: Upload deployment JSON (optional)
         uses: actions/upload-artifact@v4
         with:
@@ -78,7 +79,5 @@ jobs:
 
       # Дешёвый smoke-тест чтения (если есть адрес и RPC)
       - name: "Smoke: read SimpleStorage (optional)"
-        if: ${{ env.SIMPLE_STORAGE != '' && secrets.CIRCLE_RPC_URL != '' }}
-        env:
-          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+        if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
