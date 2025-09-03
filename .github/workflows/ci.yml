@@ -28,11 +28,20 @@ jobs:
           cache: npm
 
       - name: Install deps (Linux-safe, omit optional)
+        shell: bash
         env:
-          NPM_CONFIG_OPTIONAL: "false"   # ключ: полностью отключаем optional
+          NPM_CONFIG_OPTIONAL: "false"   # на всякий случай
         run: |
           set -e
-          npm ci --omit=optional
+          # Пытаемся установить. Если упало — проверяем лог на EBADPLATFORM (fsevents на Linux).
+          npm ci --omit=optional || {
+            echo "::warning::npm ci failed, checking for EBADPLATFORM in npm debug log…"
+            if grep -q 'EBADPLATFORM' /home/runner/.npm/_logs/*-debug-0.log; then
+              echo "::notice::Detected EBADPLATFORM for fsevents on Linux — ignoring and continuing."
+            else
+              echo "::error::npm ci failed for a different reason."; exit 1
+            fi
+          }
           npm prune --omit=optional
           npm ls fsevents || true
 
@@ -62,7 +71,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Остальное — опционально в CI (деплой не выполняется)
+      # Остальное — опционально
       - name: Upload deployment JSON (optional)
         uses: actions/upload-artifact@v4
         with:
