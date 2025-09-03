@@ -89,6 +89,6 @@ jobs:
           retention-days: 7
 
       # Дешёвый smoke-тест чтения из сети — только если заданы адрес и RPC
-      - name: Smoke: read SimpleStorage (optional)
+      - name: "Smoke: read SimpleStorage (optional)"
         if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
