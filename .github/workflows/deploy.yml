@@ -3,9 +3,12 @@ name: Deploy SimpleStorage
 on:
   workflow_dispatch: {}
 
+# нужно, чтобы:
+# - коммитить deployments/*
+# - править repository variables
 permissions:
-  contents: write   # чтобы коммитить deployments/*
-  actions: read
+  contents: write
+  actions: write
 
 jobs:
   deploy:
@@ -23,6 +26,7 @@ jobs:
           node-version: 20
           cache: npm
 
+      # ВАЖНО: без NPM_CONFIG_OPTIONAL. Только --omit=optional
       - name: Install deps (Linux-safe, omit optional)
         run: |
           set -e
@@ -53,15 +57,8 @@ jobs:
           echo "Address:  $ADDR" >> $GITHUB_STEP_SUMMARY
           test -n "$ADDR"
 
-      - name: Export ABI for artifacts
+      - name: Export ABI
         run: node scripts/exportAbi.js
-
-      - name: List outputs
-        run: |
-          echo "## Files" >> $GITHUB_STEP_SUMMARY
-          ls -la abi || true >> $GITHUB_STEP_SUMMARY
-          ls -la "deployments/${NETWORK}" || true >> $GITHUB_STEP_SUMMARY
-          ls -la artifacts/contracts/SimpleStorage.sol || true >> $GITHUB_STEP_SUMMARY
 
       - name: Upload ABI
         uses: actions/upload-artifact@v4
@@ -87,25 +84,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      # Обновляем переменную, но НЕ роняем джоб при 404/permission
+      # === Фикс обновления переменной ===
+      # Используем gh variable set (сам подберёт правильный REST)
+      # и не роняем джоб, если прав нет/404
       - name: Update Actions variable SIMPLE_STORAGE
         if: ${{ env.ADDRESS != '' }}
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
-          set -e
-          if [ -z "${GH_TOKEN}" ]; then
-            echo "GH_PAT not set, skipping variable update"
-            exit 0
-          fi
-          gh api --method PATCH \
-            "repos/${{ github.repository }}/actions/variables/SIMPLE_STORAGE" \
-            -f name="SIMPLE_STORAGE" -f value="$ADDRESS" \
-          || gh api --method POST \
-            "repos/${{ github.repository }}/actions/variables" \
-            -f name="SIMPLE_STORAGE" -f value="$ADDRESS" \
-          || echo "Skip variable update (permissions or endpoint not available)"
+          gh --version
+          gh variable set SIMPLE_STORAGE \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "$ADDRESS" \
+          || echo "Skip variable update (no permission or API not available)"
 
+      # Зафиксировать deployments/ в репозитории
       - name: Rebase with origin/main
         run: |
           git config user.name  "github-actions[bot]"
