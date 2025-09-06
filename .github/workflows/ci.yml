@@ -19,14 +19,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # то, что нужно для Hardhat
-      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}     # основной RPC
-      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}        # 64 hex (можно с 0x)
-      CHAIN_ID:       ${{ vars.CHAIN_ID }}              # 28525 (можно как VAR)
-      # опционально: список фоллбэков через запятую (можно задать в repo Variables)
+      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+      PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
+      CHAIN_ID:       ${{ vars.CHAIN_ID }}
       FALLBACK_RPC_URLS: ${{ vars.FALLBACK_RPC_URLS }}
 
-      # npm: без optional зависимостей (fsevents и т.п.)
       CI: "true"
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND:  "false"
@@ -42,7 +39,6 @@ jobs:
           node-version: 20
           cache: npm
 
-      # Установка зависимостей + игнор EBADPLATFORM (fsevents на Linux)
       - name: Install deps (Linux-safe, omit optional)
         shell: bash
         run: |
@@ -62,7 +58,6 @@ jobs:
           npm prune --omit=optional
           npm ls fsevents || true
 
-      # На всякий: ставим analyzer + dotenv, если вдруг не подтянулось
       - name: Ensure Hardhat analyzer + dotenv
         shell: bash
         run: |
@@ -73,7 +68,6 @@ jobs:
       - name: Compile (verbose)
         shell: bash
         run: |
-          echo "Hardhat compile…"
           npx hardhat compile
 
       - name: Export ABI for artifacts
@@ -87,7 +81,6 @@ jobs:
           ls -la deployments || true >> $GITHUB_STEP_SUMMARY
           ls -la artifacts/contracts || true >> $GITHUB_STEP_SUMMARY
 
-      # Загружаем артефакты
       - name: Upload ABI
         uses: actions/upload-artifact@v4
         with:
@@ -113,8 +106,7 @@ jobs:
           retention-days: 7
 
       # ----------- ПРЕФЛАЙТ ДЛЯ ДЕПЛОЯ (только вручную) -----------
-
-            - name: Preflight – pick healthy RPC (manual)
+      - name: Preflight – pick healthy RPC (manual)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         env:
@@ -134,7 +126,7 @@ jobs:
             echo "::error::CIRCLE_RPC_URL secret is empty."; exit 1
           fi
 
-          # кандидаты: основной + опциональные фоллбэки (через запятую)
+          # кандидаты: основной + фоллбэки (через запятую)
           CANDIDATES="$CIRCLE_RPC_URL"
           [ -n "${FALLBACK_RPC_URLS:-}" ] && CANDIDATES="$CANDIDATES,${FALLBACK_RPC_URLS}"
 
@@ -144,7 +136,7 @@ jobs:
             URL="$(echo "$URL" | xargs)"; [ -z "$URL" ] && continue
             echo "Probing RPC: $URL"
 
-            # получаем тело + HTTP-код (любые 5xx будут видны, напр. 521)
+            # тело + HTTP-код (видим 5xx, напр. 521)
             RESP_AND_CODE="$(curl -sS -w '\n%{http_code}' \
               -H 'content-type: application/json' \
               --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' \
@@ -173,65 +165,25 @@ jobs:
           fi
 
           echo "Using RPC: $CHOSEN"
-          # делаем выбранный RPC видимым для следующих шагов
           echo "CIRCLE_RPC_URL=$CHOSEN" >> $GITHUB_ENV
 
-      # ----------- ДЕПЛОЙ С ФОЛЛБЭКАМИ И РЕТРАЕМ (только вручную) -----------
-
+      # ----------- ДЕПЛОЙ (только вручную) -----------
       - name: Deploy SimpleStorage (manual only)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         env:
           HARDHAT_NETWORK: circleLayerTestnet
-          EXPECTED_CHAINID_HEX: "0x6f6d"
         run: |
           set -e
-
-          pick_working_rpc () {
-            local list="$1"
-            IFS=',' read -ra RPCS <<< "$list"
-            for r in "${RPCS[@]}"; do
-              r="$(echo "$r" | xargs)"   # trim
-              [ -z "$r" ] && continue
-              echo "Probing RPC: $r"
-              local res
-              res="$(curl -sS -X POST -H 'content-type: application/json' \
-                  --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' "$r" || true)"
-              if echo "$res" | grep -qi "\"result\":\"$EXPECTED_CHAINID_HEX\""; then
-                echo "Using RPC: $r"
-                echo "$r"
-                return 0
-              else
-                echo "Not suitable: $res"
-              fi
-            done
-            return 1
-          }
-
-          # формируем список: основной + фоллбэки
-          RPC_LIST="$CIRCLE_RPC_URL"
-          if [ -n "${FALLBACK_RPC_URLS:-}" ]; then
-            RPC_LIST="$RPC_LIST,${FALLBACK_RPC_URLS}"
-          fi
-
-          # выбираем «живой» RPC
-          CHOSEN_RPC="$(pick_working_rpc "$RPC_LIST")" || {
-            echo "::error::No working RPC endpoint found."; exit 1;
-          }
-          export CIRCLE_RPC_URL="$CHOSEN_RPC"
-
           echo "Deploy attempt #1…"
           if npx hardhat run --network circleLayerTestnet scripts/deploy.js; then
             echo "Deploy OK (1st try)"; exit 0
           fi
-
           echo "First attempt failed — sleep 10s and retry"
           sleep 10
-
           echo "Deploy attempt #2…"
           npx hardhat run --network circleLayerTestnet scripts/deploy.js
 
-      # адрес контракта печатается в логах deploy.js; тут можно выгрузить его, если вы сохраняете файл
       - name: Upload deployed address (optional)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
@@ -240,12 +192,3 @@ jobs:
           path: deployments/**/SimpleStorage.json
           if-no-files-found: ignore
           retention-days: 7
-
-      # Пробное чтение (если адрес есть и RPC жив)
-      - name: Smoke read freshly deployed (optional)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        env:
-          SIMPLE_STORAGE: ${{ vars.SIMPLE_STORAGE }}
-        run: |
-          # Если у вас в deploy.js сохраняется адрес в deployments/**, можно достать его и подставить сюда
-          echo "Smoke read step (optional done)"
