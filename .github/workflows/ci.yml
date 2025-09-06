@@ -67,7 +67,6 @@ jobs:
           path: deployments/**/SimpleStorage.json
           if-no-files-found: ignore
           retention-days: 7
-
       - name: Upload hardhat artifact (optional)
         uses: actions/upload-artifact@v4
         with:
@@ -78,7 +77,7 @@ jobs:
 
       # Дешёвый smoke-тест чтения (если есть адрес и RPC)
       - name: Smoke: read SimpleStorage (optional)
-        if: ${{ env.SIMPLE_STORAGE != '' && secrets.CIRCLE_RPC_URL != '' }}
+        if: ${{ env.SIMPLE_STORAGE && secrets.CIRCLE_RPC_URL }}
         env:
           CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
