@@ -29,11 +29,16 @@ jobs:
           node-version: 20
           cache: npm
 
+      # Обновляем npm до последней версии (как рекомендовано)
+      - name: Update npm
+        run: npm i -g npm@latest
+
       - name: Show versions
         run: |
           node -v
           npm -v
 
+      # Установка зависимостей с жёстким игнором EBADPLATFORM (fsevents на Linux)
       - name: Install deps (Linux-safe, omit optional)
         shell: bash
         env:
@@ -41,7 +46,6 @@ jobs:
         run: |
           set -e
           npm ci --omit=optional --no-optional || {
-            echo "::warning::npm ci failed, checking for EBADPLATFORM in npm logs…"
             if grep -Eiq 'EBADPLATFORM|Unsupported platform.*fsevents' /home/runner/.npm/_logs/*-debug-*.log; then
               echo "::notice::Ignoring EBADPLATFORM for fsevents on Linux and continuing."
               exit 0
@@ -58,33 +62,7 @@ jobs:
           npm prune --omit=optional
           npm ls fsevents || true
 
-      - name: "Sanitize Hardhat config (remove TypeChain if present)"
-        shell: bash
-        run: |
-          set -e
-          CFG=""
-          [ -f hardhat.config.js ] && CFG="hardhat.config.js"
-          [ -z "$CFG" ] && [ -f hardhat.config.ts ] && CFG="hardhat.config.ts"
-
-          if [ -z "$CFG" ]; then
-            echo "::notice::No hardhat.config.js/ts found — skipping sanitize."
-            exit 0
-          fi
-
-          cp "$CFG" "$CFG.bak"
-
-          # 1) Удаляем любые require/import '@typechain/hardhat'
-          sed -i '/@typechain\/hardhat/d' "$CFG" || true
-
-          # 2) Удаляем блок typechain: { … } в любом положении и с запятыми вокруг
-          perl -0777 -pe 's/\s*,\s*typechain\s*:\s*\{[^{}]*\}\s*/\n/gs' -i "$CFG" 2>/dev/null || true
-          perl -0777 -pe 's/\s*typechain\s*:\s*\{[^{}]*\}\s*,\s*/\n/gs' -i "$CFG" 2>/dev/null || true
-          perl -0777 -pe 's/\s*typechain\s*:\s*\{[^{}]*\}\s*/\n/gs' -i "$CFG" 2>/dev/null || true
-
-          echo "----- Diff after sanitize ($CFG) -----"
-          diff -u "$CFG.bak" "$CFG" || true
-          echo "--------------------------------------"
-
+      # Чтобы компиляция Hardhat не споткнулась на бинарнике анализатора под Linux
       - name: Ensure Hardhat analyzer (Linux)
         run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
 
@@ -109,6 +87,7 @@ jobs:
           ls -la deployments || true >> $GITHUB_STEP_SUMMARY
           ls -la artifacts/contracts/SimpleStorage.sol || true >> $GITHUB_STEP_SUMMARY
 
+      # Загружаем ABI — должен быть всегда
       - name: Upload ABI
         uses: actions/upload-artifact@v4
         with:
@@ -117,6 +96,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # Остальные артефакты — опционально
       - name: Upload deployment JSON (optional)
         uses: actions/upload-artifact@v4
         with:
@@ -133,6 +113,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # Дешёвый smoke-тест чтения из сети — только если заданы адрес и RPC
       - name: "Smoke: read SimpleStorage (optional)"
         if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
