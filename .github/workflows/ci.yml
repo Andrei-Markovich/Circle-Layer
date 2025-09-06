@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch: {}   # ручной запуск для деплоя
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -37,7 +37,6 @@ jobs:
           node -v
           npm -v
 
-      # Установка зависимостей с жёстким игнором EBADPLATFORM (fsevents)
       - name: Install deps (Linux-safe, omit optional)
         shell: bash
         env:
@@ -61,7 +60,6 @@ jobs:
           npm prune --omit=optional
           npm ls fsevents || true
 
-      # Гарантируем devDeps для компиляции
       - name: Ensure Hardhat analyzer + dotenv
         run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu dotenv
 
@@ -110,36 +108,34 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      # ---------- ПРЕФЛАЙТ ДЛЯ ДЕПЛОЯ ----------
-      - name: Preflight: validate secrets for deploy (manual only)
+      # ---------- PRE-FLIGHT ----------
+      - name: "Preflight – validate secrets for deploy (manual)"
         if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: |
           set -e
-          # CIRCLE_RPC_URL должен начинаться с http(s)://
           if [ -z "${CIRCLE_RPC_URL:-}" ]; then
             echo "::error::CIRCLE_RPC_URL secret is empty."; exit 1
           fi
           if ! echo "$CIRCLE_RPC_URL" | grep -Eq '^https?://'; then
-            echo "::error::CIRCLE_RPC_URL must start with http(s):// (got: masked value). Set a real RPC URL in repo Settings → Secrets."; exit 1
+            echo "::error::CIRCLE_RPC_URL must start with http(s):// (masked value shown in UI). Set a real RPC URL in repo Settings → Secrets."; exit 1
           fi
-          # PRIVATE_KEY — 64 hex-символа, с префиксом 0x или без
           if [ -z "${PRIVATE_KEY:-}" ]; then
             echo "::error::PRIVATE_KEY secret is empty."; exit 1
           fi
           if ! echo "$PRIVATE_KEY" | grep -Eq '^(0x)?[0-9a-fA-F]{64}$'; then
             echo "::error::PRIVATE_KEY must be 64 hex chars (with optional 0x)."; exit 1
           fi
-          echo "All deploy secrets look OK."
+          echo "Preflight OK."
 
-      # ---------- ДЕПЛОЙ (ручной запуск) ----------
-      - name: Deploy SimpleStorage (manual only)
+      # ---------- DEPLOY (manual only) ----------
+      - name: "Deploy SimpleStorage (manual only)"
         if: ${{ github.event_name == 'workflow_dispatch' }}
         id: deploy
         shell: bash
         run: |
           set -e
-          echo "Starting deploy..."
+          echo "Starting deploy…"
           ADDR=$(npx hardhat run --network circleLayerTestnet scripts/deploy.js | grep -Eoi '0x[a-fA-F0-9]{40}' | tail -1)
           if [ -z "$ADDR" ]; then
             echo "::error::Deploy script didn't print an address"; exit 1
@@ -159,12 +155,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Смоук-чтение нового адреса (если деплоили)
-      - name: Smoke read freshly deployed (optional)
+      - name: "Smoke read freshly deployed (optional)"
         if: ${{ steps.deploy.outputs.address != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js ${{ steps.deploy.outputs.address }}
 
-      # Смоук-чтение старого адреса (если задан в vars)
-      - name: Smoke: read existing SimpleStorage (optional)
+      - name: "Smoke: read existing SimpleStorage (optional)"
         if: ${{ steps.deploy.outputs.address == '' && env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
