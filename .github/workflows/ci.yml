@@ -40,15 +40,21 @@ jobs:
           NPM_CONFIG_OPTIONAL: "false"
         run: |
           set -e
-          # Ставим зависимости. Если падение из-за EBADPLATFORM (fsevents на Linux) — игнорируем и идём дальше.
           npm ci --omit=optional --no-optional || {
             echo "::warning::npm ci failed, checking for EBADPLATFORM in npm logs…"
             if grep -Eiq 'EBADPLATFORM|Unsupported platform.*fsevents' /home/runner/.npm/_logs/*-debug-*.log; then
               echo "::notice::Ignoring EBADPLATFORM for fsevents on Linux and continuing."
+              exit 0
             else
-              echo "::error::npm ci failed for a different reason."; exit 1
+              echo "::error::npm ci failed for a different reason."
+              exit 1
             fi
           }
+
+      - name: Prune optional deps & verify fsevents skipped
+        shell: bash
+        run: |
+          set -e
           npm prune --omit=optional
           npm ls fsevents || true
 
@@ -67,15 +73,12 @@ jobs:
 
           cp "$CFG" "$CFG.bak"
 
-          # 1) Удаляем любые require/import '@typechain/hardhat' (в т.ч. закомментированные — безопасно)
+          # 1) Удаляем любые require/import '@typechain/hardhat'
           sed -i '/@typechain\/hardhat/d' "$CFG" || true
 
-          # 2) Удаляем блок typechain: { … } вместе с лишними запятыми вокруг
-          #   - запятая перед блоком
+          # 2) Удаляем блок typechain: { … } в любом положении и с запятыми вокруг
           perl -0777 -pe 's/\s*,\s*typechain\s*:\s*\{[^{}]*\}\s*/\n/gs' -i "$CFG" 2>/dev/null || true
-          #   - запятая после блока
           perl -0777 -pe 's/\s*typechain\s*:\s*\{[^{}]*\}\s*,\s*/\n/gs' -i "$CFG" 2>/dev/null || true
-          #   - блок без соседних запятых
           perl -0777 -pe 's/\s*typechain\s*:\s*\{[^{}]*\}\s*/\n/gs' -i "$CFG" 2>/dev/null || true
 
           echo "----- Diff after sanitize ($CFG) -----"
@@ -85,7 +88,7 @@ jobs:
       - name: Ensure Hardhat analyzer (Linux)
         run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
 
-      - name: "Compile (verbose)"
+      - name: Compile (verbose)
         shell: bash
         run: |
           set -e
