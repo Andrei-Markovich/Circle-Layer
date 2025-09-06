@@ -114,43 +114,67 @@ jobs:
 
       # ----------- ПРЕФЛАЙТ ДЛЯ ДЕПЛОЯ (только вручную) -----------
 
-      - name: Preflight – validate RPC & secrets (manual)
+            - name: Preflight – pick healthy RPC (manual)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         env:
-          EXPECTED_CHAINID_HEX: "0x6f6d"   # 28525
+          EXPECTED_CHAINID_HEX: "0x6f6d"   # 28525 (CLayer Testnet)
         run: |
           set -e
 
-          if [ -z "${CIRCLE_RPC_URL:-}" ]; then
-            echo "::error::CIRCLE_RPC_URL secret is empty."; exit 1
-          fi
-          if ! echo "$CIRCLE_RPC_URL" | grep -Eqi '^https?://'; then
-            echo "::error::CIRCLE_RPC_URL must start with http(s)://"; exit 1
-          fi
-
+          # проверка секретов
           if [ -z "${PRIVATE_KEY:-}" ]; then
             echo "::error::PRIVATE_KEY secret is empty."; exit 1
           fi
           HEX="${PRIVATE_KEY#0x}"
           if ! echo -n "$HEX" | grep -Eq '^[0-9a-fA-F]{64}$'; then
-            echo "::error::PRIVATE_KEY must be 64 hex chars (with optional 0x)."; exit 1
+            echo "::error::PRIVATE_KEY must be 64 hex chars (optional 0x)."; exit 1
+          fi
+          if [ -z "${CIRCLE_RPC_URL:-}" ]; then
+            echo "::error::CIRCLE_RPC_URL secret is empty."; exit 1
           fi
 
-          echo "Ping primary RPC: $CIRCLE_RPC_URL"
-          RES="$(curl -sS -X POST -H 'content-type: application/json' \
-            --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' \
-            "$CIRCLE_RPC_URL" || true)"
-          echo "RPC response: $RES"
+          # кандидаты: основной + опциональные фоллбэки (через запятую)
+          CANDIDATES="$CIRCLE_RPC_URL"
+          [ -n "${FALLBACK_RPC_URLS:-}" ] && CANDIDATES="$CANDIDATES,${FALLBACK_RPC_URLS}"
 
-          if echo "$RES" | grep -qE '"code":\s*5[0-9]{2}'; then
-            echo "::error::RPC returned 5xx (e.g. 521). Use fallback or re-run later."; exit 1
+          CHOSEN=""
+          IFS=',' read -ra RPCS <<< "$CANDIDATES"
+          for URL in "${RPCS[@]}"; do
+            URL="$(echo "$URL" | xargs)"; [ -z "$URL" ] && continue
+            echo "Probing RPC: $URL"
+
+            # получаем тело + HTTP-код (любые 5xx будут видны, напр. 521)
+            RESP_AND_CODE="$(curl -sS -w '\n%{http_code}' \
+              -H 'content-type: application/json' \
+              --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' \
+              "$URL" || true)"
+            BODY="$(echo "$RESP_AND_CODE" | sed '$d')"
+            CODE="$(echo "$RESP_AND_CODE" | tail -n1)"
+
+            echo "HTTP $CODE"
+            if [ "$CODE" != "200" ]; then
+              echo "Skip: HTTP $CODE"
+              continue
+            fi
+
+            if echo "$BODY" | grep -qi "\"result\":\"$EXPECTED_CHAINID_HEX\""; then
+              echo "OK: expected chainId"
+              CHOSEN="$URL"
+              break
+            else
+              echo "Skip: unexpected chainId in body: $BODY"
+            fi
+          done
+
+          if [ -z "$CHOSEN" ]; then
+            echo "::error::No healthy RPC returned expected chainId ($EXPECTED_CHAINID_HEX). Re-run later or add FALLBACK_RPC_URLS."
+            exit 1
           fi
-          if echo "$RES" | grep -qi "\"result\":\"$EXPECTED_CHAINID_HEX\""; then
-            echo "RPC OK: chainId = $EXPECTED_CHAINID_HEX"
-          else
-            echo "::error::Unexpected chainId. Expected $EXPECTED_CHAINID_HEX."; exit 1
-          fi
+
+          echo "Using RPC: $CHOSEN"
+          # делаем выбранный RPC видимым для следующих шагов
+          echo "CIRCLE_RPC_URL=$CHOSEN" >> $GITHUB_ENV
 
       # ----------- ДЕПЛОЙ С ФОЛЛБЭКАМИ И РЕТРАЕМ (только вручную) -----------
 
