@@ -16,4 +16,4 @@ module.exports = {
   },
 };
 
-// ВНИМАНИЕ: не добавляй сюда require('@typechain/hardhat') и не добавляй блок `typechain: { ... }`
+// ВАЖНО: не добавляй сюда require('@typechain/hardhat') и не добавляй блок `typechain: { ... }`
