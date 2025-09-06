@@ -29,7 +29,6 @@ jobs:
           node-version: 20
           cache: npm
 
-      # Обновляем npm до последней версии (как рекомендовано)
       - name: Update npm
         run: npm i -g npm@latest
 
@@ -38,7 +37,6 @@ jobs:
           node -v
           npm -v
 
-      # Установка зависимостей с жёстким игнором EBADPLATFORM (fsevents на Linux)
       - name: Install deps (Linux-safe, omit optional)
         shell: bash
         env:
@@ -62,9 +60,9 @@ jobs:
           npm prune --omit=optional
           npm ls fsevents || true
 
-      # Чтобы компиляция Hardhat не споткнулась на бинарнике анализатора под Linux
-      - name: Ensure Hardhat analyzer (Linux)
-        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+      # На раннере гарантируем наличие нужных devDeps
+      - name: Ensure Hardhat analyzer + dotenv
+        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu dotenv
 
       - name: Compile (verbose)
         shell: bash
@@ -87,7 +85,6 @@ jobs:
           ls -la deployments || true >> $GITHUB_STEP_SUMMARY
           ls -la artifacts/contracts/SimpleStorage.sol || true >> $GITHUB_STEP_SUMMARY
 
-      # Загружаем ABI — должен быть всегда
       - name: Upload ABI
         uses: actions/upload-artifact@v4
         with:
@@ -96,7 +93,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Остальные артефакты — опционально
       - name: Upload deployment JSON (optional)
         uses: actions/upload-artifact@v4
         with:
@@ -113,7 +109,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      # Дешёвый smoke-тест чтения из сети — только если заданы адрес и RPC
       - name: "Smoke: read SimpleStorage (optional)"
         if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
