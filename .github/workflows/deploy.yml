@@ -1,36 +1,21 @@
-﻿name: Deploy SimpleStorage
+name: Deploy SimpleStorage
 
 on:
   workflow_dispatch: {}
 
-# нужно, чтобы:
-# - коммитить deployments/*
-# - править repository variables
 permissions:
-  contents: write
-  actions: write
-<<<<<<< HEAD
-=======
-
-concurrency:
-  group: deploy-simplestorage
-  cancel-in-progress: false
->>>>>>> 31a04e0 (ci: skip optional deps on Linux with --no-optional)
+  contents: write   # чтобы коммитить deployments/*
+  actions: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-<<<<<<< HEAD
     env:
       NETWORK: circleLayerTestnet
-=======
->>>>>>> 31a04e0 (ci: skip optional deps on Linux with --no-optional)
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # Ð½ÑƒÐ¶Ð½Ð¾ Ð´Ð»Ñ rebase Ð¸ Ð¿ÑƒÑˆÐ°
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -38,8 +23,6 @@ jobs:
           node-version: 20
           cache: npm
 
-<<<<<<< HEAD
-      # ВАЖНО: без NPM_CONFIG_OPTIONAL. Только --omit=optional
       - name: Install deps (Linux-safe, omit optional)
         run: |
           set -e
@@ -50,14 +33,6 @@ jobs:
       - name: Compile (ensure analyzer)
         shell: bash
         run: |
-=======
-      - name: Install deps (skip optional)
-        run: npm ci --omit=optional --no-optional
-
-      - name: Compile (ensure analyzer)
-        shell: bash
-        run: |
->>>>>>> 31a04e0 (ci: skip optional deps on Linux with --no-optional)
           node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
           || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
           npx hardhat compile
@@ -66,7 +41,6 @@ jobs:
         env:
           CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
           PRIVATE_KEY:    ${{ secrets.PRIVATE_KEY }}
-<<<<<<< HEAD
         run: npx hardhat run --network $NETWORK scripts/deploySimpleStorage.js
 
       - name: Read deployed address
@@ -79,8 +53,15 @@ jobs:
           echo "Address:  $ADDR" >> $GITHUB_STEP_SUMMARY
           test -n "$ADDR"
 
-      - name: Export ABI
+      - name: Export ABI for artifacts
         run: node scripts/exportAbi.js
+
+      - name: List outputs
+        run: |
+          echo "## Files" >> $GITHUB_STEP_SUMMARY
+          ls -la abi || true >> $GITHUB_STEP_SUMMARY
+          ls -la "deployments/${NETWORK}" || true >> $GITHUB_STEP_SUMMARY
+          ls -la artifacts/contracts/SimpleStorage.sol || true >> $GITHUB_STEP_SUMMARY
 
       - name: Upload ABI
         uses: actions/upload-artifact@v4
@@ -106,21 +87,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      # === Фикс обновления переменной ===
-      # Используем gh variable set (сам подберёт правильный REST)
-      # и не роняем джоб, если прав нет/404
+      # Обновляем переменную, но НЕ роняем джоб при 404/permission
       - name: Update Actions variable SIMPLE_STORAGE
         if: ${{ env.ADDRESS != '' }}
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          gh --version
-          gh variable set SIMPLE_STORAGE \
-            --repo "$GITHUB_REPOSITORY" \
-            --body "$ADDRESS" \
-          || echo "Skip variable update (no permission or API not available)"
+          set -e
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "GH_PAT not set, skipping variable update"
+            exit 0
+          fi
+          gh api --method PATCH \
+            "repos/${{ github.repository }}/actions/variables/SIMPLE_STORAGE" \
+            -f name="SIMPLE_STORAGE" -f value="$ADDRESS" \
+          || gh api --method POST \
+            "repos/${{ github.repository }}/actions/variables" \
+            -f name="SIMPLE_STORAGE" -f value="$ADDRESS" \
+          || echo "Skip variable update (permissions or endpoint not available)"
 
-      # Зафиксировать deployments/ в репозитории
       - name: Rebase with origin/main
         run: |
           git config user.name  "github-actions[bot]"
@@ -139,45 +124,3 @@ jobs:
 
       - name: Push
         run: git push origin HEAD:main
-=======
-        run: npx hardhat run --network circleLayerTestnet scripts/deploySimpleStorage.js
-
-      - name: Read deployed address
-        id: read_addr
-        run: |
-          ADDR=$(jq -r .address deployments/circleLayerTestnet/SimpleStorage.json)
-          echo "ADDR=$ADDR" | tee -a $GITHUB_ENV
-          echo "addr=$ADDR" >> $GITHUB_OUTPUT
-
-      - name: Update Actions variable SIMPLE_STORAGE
-        if: steps.read_addr.outputs.addr != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          curl -sSf -X PATCH \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/variables/SIMPLE_STORAGE" \
-            -d "{\"name\":\"SIMPLE_STORAGE\",\"value\":\"${ADDR}\"}"
-
-      - name: Rebase with origin/main
-        run: |
-          git config user.email "ci-bot@users.noreply.github.com"
-          git config user.name  "ci-bot"
-          git fetch origin main
-          git pull --rebase origin main
-
-      - name: Auto-commit deployments file
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          file_pattern: deployments/circleLayerTestnet/SimpleStorage.json
-          commit_message: "ci: track deployed SimpleStorage address"
-          push_options: '--force-with-lease'
-
-      - name: Job summary
-        run: |
-          echo "### Deploy completed" >> $GITHUB_STEP_SUMMARY
-          echo "- Network: \`circleLayerTestnet\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Address: \`${{ steps.read_addr.outputs.addr }}\`" >> $GITHUB_STEP_SUMMARY
-
->>>>>>> 31a04e0 (ci: skip optional deps on Linux with --no-optional)
