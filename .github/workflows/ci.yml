@@ -15,6 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SIMPLE_STORAGE: ${{ vars.SIMPLE_STORAGE }}
+      CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+      CHAIN_ID: ${{ vars.CHAIN_ID }}
+      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
 
     steps:
       - name: Checkout
@@ -26,19 +29,59 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Show versions
+        run: |
+          node -v
+          npm -v
+
       - name: Install deps (Linux-safe, omit optional)
+        shell: bash
+        env:
+          NPM_CONFIG_OPTIONAL: "false"
         run: |
           set -e
-          npm ci --omit=optional
+          # Ставим зависимости. Если падение из-за EBADPLATFORM (fsevents на Linux) — пропускаем и идём дальше.
+          npm ci --omit=optional --no-optional || {
+            echo "::warning::npm ci failed, checking for EBADPLATFORM in npm logs…"
+            if grep -Eiq 'EBADPLATFORM|Unsupported platform.*fsevents' /home/runner/.npm/_logs/*-debug-*.log; then
+              echo "::notice::Ignoring EBADPLATFORM for fsevents on Linux and continuing."
+            else
+              echo "::error::npm ci failed for a different reason."; exit 1
+            fi
+          }
           npm prune --omit=optional
           npm ls fsevents || true
 
-      - name: Ensure analyzer & Compile
+      - name: Verify Hardhat config has NO TypeChain
         shell: bash
         run: |
-          node -e "try{require.resolve('@nomicfoundation/solidity-analyzer-linux-x64-gnu');process.exit(0)}catch(e){process.exit(1)}" \
-          || npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
-          npx hardhat compile
+          set -e
+          CFG=""
+          [ -f hardhat.config.js ] && CFG="hardhat.config.js"
+          [ -z "$CFG" ] && [ -f hardhat.config.ts ] && CFG="hardhat.config.ts"
+          if [ -z "$CFG" ]; then
+            echo "::warning::No hardhat.config.js/ts found — skipping TypeChain check."
+            exit 0
+          fi
+          if grep -Eq "@typechain/hardhat|typechain\s*:" "$CFG"; then
+            echo "::error::Remove '@typechain/hardhat' import/require and the 'typechain: { … }' block from $CFG, then re-run CI."
+            exit 1
+          fi
+          echo "OK: TypeChain is not referenced in $CFG"
+
+      - name: Ensure Hardhat analyzer (Linux)
+        run: npm i -D @nomicfoundation/solidity-analyzer-linux-x64-gnu
+
+      - name: Compile (verbose)
+        shell: bash
+        run: |
+          set -e
+          echo "----- hardhat.config preview -----"
+          [ -f hardhat.config.js ] && sed -n '1,200p' hardhat.config.js || true
+          [ -f hardhat.config.ts ] && sed -n '1,200p' hardhat.config.ts || true
+          echo "----------------------------------"
+          npx hardhat clean
+          npx hardhat compile --show-stack-traces
 
       - name: Export ABI for artifacts
         run: node scripts/exportAbi.js
@@ -50,7 +93,6 @@ jobs:
           ls -la deployments || true >> $GITHUB_STEP_SUMMARY
           ls -la artifacts/contracts/SimpleStorage.sol || true >> $GITHUB_STEP_SUMMARY
 
-      # Загружаем ABI — всегда должен быть
       - name: Upload ABI
         uses: actions/upload-artifact@v4
         with:
@@ -59,7 +101,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Остальное — опционально в CI (деплой не выполняется)
       - name: Upload deployment JSON (optional)
         uses: actions/upload-artifact@v4
         with:
@@ -67,6 +108,7 @@ jobs:
           path: deployments/**/SimpleStorage.json
           if-no-files-found: ignore
           retention-days: 7
+
       - name: Upload hardhat artifact (optional)
         uses: actions/upload-artifact@v4
         with:
@@ -75,9 +117,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      # Дешёвый smoke-тест чтения (если есть адрес и RPC)
-      - name: Smoke: read SimpleStorage (optional)
-        if: ${{ env.SIMPLE_STORAGE && secrets.CIRCLE_RPC_URL }}
-        env:
-          CIRCLE_RPC_URL: ${{ secrets.CIRCLE_RPC_URL }}
+      - name: "Smoke: read SimpleStorage (optional)"
+        if: ${{ env.SIMPLE_STORAGE != '' && env.CIRCLE_RPC_URL != '' }}
         run: npx hardhat run --network circleLayerTestnet scripts/read.js
