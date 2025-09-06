@@ -5,7 +5,7 @@ const { CIRCLE_RPC_URL, PRIVATE_KEY, CHAIN_ID } = process.env;
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
-  // Поддерживаем все встречающиеся pragma
+  // Поддерживаем встречающиеся pragma
   solidity: {
     compilers: [
       { version: "0.8.28", settings: { optimizer: { enabled: true, runs: 200 } } },
